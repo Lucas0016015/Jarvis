@@ -1,12 +1,10 @@
 """REST endpoints for Calendar Events."""
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 
-from backend.models.calendar_event import CalendarEvent
-from backend.storage.json_store import JsonStore
+from backend.services import calendar_service
 
 router = APIRouter()
-_store = JsonStore("calendar")
 
 
 class EventCreate(BaseModel):
@@ -25,57 +23,38 @@ class EventUpdate(BaseModel):
     location: str | None = None
 
 
-@router.get("", response_model=list[CalendarEvent])
-def list_events():
-    events = [CalendarEvent(**e) for e in _store.all()]
-    events.sort(key=lambda e: e.start_datetime)
-    return events
+@router.get("")
+def list_events(upcoming_only: bool = Query(True), calendar_id: str = Query("primary")):
+    return calendar_service.list_calendar_events(upcoming_only, calendar_id)
 
 
-@router.post("", response_model=CalendarEvent, status_code=201)
-def create_event(body: EventCreate):
-    from datetime import datetime
-    event = CalendarEvent(
-        title=body.title,
-        start_datetime=datetime.fromisoformat(body.start_datetime),
-        end_datetime=datetime.fromisoformat(body.end_datetime),
-        description=body.description,
-        location=body.location,
+@router.post("", status_code=201)
+def create_event(body: EventCreate, calendar_id: str = Query("primary")):
+    return calendar_service.create_calendar_event(
+        body.title, body.start_datetime, body.end_datetime, body.description, body.location, calendar_id
     )
-    _store.set(event.id, event.model_dump())
-    return event
 
 
-@router.get("/{event_id}", response_model=CalendarEvent)
-def get_event(event_id: str):
-    data = _store.get(event_id)
+@router.get("/{event_id}")
+def get_event(event_id: str, calendar_id: str = Query("primary")):
+    data = calendar_service.get_calendar_event(event_id, calendar_id)
     if not data:
         raise HTTPException(status_code=404, detail="Event not found")
-    return CalendarEvent(**data)
+    return data
 
 
-@router.put("/{event_id}", response_model=CalendarEvent)
-def update_event(event_id: str, body: EventUpdate):
-    from datetime import datetime
-    data = _store.get(event_id)
+@router.put("/{event_id}")
+def update_event(event_id: str, body: EventUpdate, calendar_id: str = Query("primary")):
+    data = calendar_service.update_calendar_event(
+        event_id, body.title, body.start_datetime, body.end_datetime, body.description, body.location, calendar_id
+    )
     if not data:
         raise HTTPException(status_code=404, detail="Event not found")
-    event = CalendarEvent(**data)
-    if body.title is not None:
-        event.title = body.title
-    if body.start_datetime is not None:
-        event.start_datetime = datetime.fromisoformat(body.start_datetime)
-    if body.end_datetime is not None:
-        event.end_datetime = datetime.fromisoformat(body.end_datetime)
-    if body.description is not None:
-        event.description = body.description
-    if body.location is not None:
-        event.location = body.location
-    _store.set(event.id, event.model_dump())
-    return event
+    return data
 
 
 @router.delete("/{event_id}", status_code=204)
-def delete_event(event_id: str):
-    if not _store.delete(event_id):
+def delete_event(event_id: str, calendar_id: str = Query("primary")):
+    result = calendar_service.delete_calendar_event(event_id, calendar_id)
+    if "not found" in result:
         raise HTTPException(status_code=404, detail="Event not found")

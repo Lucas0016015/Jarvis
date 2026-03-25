@@ -46,8 +46,4 @@ Requires `GMAIL_CREDENTIALS_FILE` and `GMAIL_TOKEN_FILE` in `.env`.
 
 ### Gmail setup
 
-1. Go to Google Cloud Console → create a project → enable Gmail API
-2. Create OAuth 2.0 credentials (Desktop app) → download `credentials.json`
-3. Set `GMAIL_CREDENTIALS_FILE=credentials.json` in `.env`
-4. Run any Gmail tool once — a browser window opens for OAuth consent
-5. Token saved to `GMAIL_TOKEN_FILE` (default: `token.json`) for future use
+See [docs/google-integration.md](google-integration.md) for the full setup guide, including Gmail, Google Calendar, and OAuth troubleshooting.

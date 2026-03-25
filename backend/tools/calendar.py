@@ -1,10 +1,7 @@
 """LangChain tools for calendar event management."""
 from langchain_core.tools import tool
 
-from backend.models.calendar_event import CalendarEvent
-from backend.storage.json_store import JsonStore
-
-_store = JsonStore("calendar")
+from backend.services import calendar_service
 
 
 @tool
@@ -14,36 +11,39 @@ def create_calendar_event(
     end_datetime: str,
     description: str = "",
     location: str = "",
+    calendar_id: str = "primary",
 ) -> dict:
     """Create a calendar event. Datetimes must be ISO format (e.g. 2024-12-31T10:00:00)."""
-    from datetime import datetime
-    event = CalendarEvent(
-        title=title,
-        start_datetime=datetime.fromisoformat(start_datetime),
-        end_datetime=datetime.fromisoformat(end_datetime),
-        description=description,
-        location=location,
-    )
-    _store.set(event.id, event.model_dump())
-    return event.model_dump()
+    return calendar_service.create_calendar_event(title, start_datetime, end_datetime, description, location, calendar_id)
 
 
 @tool
-def list_calendar_events() -> list[dict]:
-    """List all upcoming calendar events, sorted by start time."""
-    events = [CalendarEvent(**e) for e in _store.all()]
-    events.sort(key=lambda e: e.start_datetime)
-    return [e.model_dump() for e in events]
+def list_calendar_events(upcoming_only: bool = True, calendar_id: str = "primary") -> list[dict]:
+    """List calendar events. By default only shows upcoming events."""
+    return calendar_service.list_calendar_events(upcoming_only, calendar_id)
 
 
 @tool
-def get_calendar_event(event_id: str) -> dict | None:
+def get_calendar_event(event_id: str, calendar_id: str = "primary") -> dict | None:
     """Get a calendar event by its ID."""
-    return _store.get(event_id)
+    return calendar_service.get_calendar_event(event_id, calendar_id)
 
 
 @tool
-def delete_calendar_event(event_id: str) -> str:
+def update_calendar_event(
+    event_id: str,
+    title: str | None = None,
+    start_datetime: str | None = None,
+    end_datetime: str | None = None,
+    description: str | None = None,
+    location: str | None = None,
+    calendar_id: str = "primary",
+) -> dict | None:
+    """Update an existing calendar event's fields."""
+    return calendar_service.update_calendar_event(event_id, title, start_datetime, end_datetime, description, location, calendar_id)
+
+
+@tool
+def delete_calendar_event(event_id: str, calendar_id: str = "primary") -> str:
     """Delete a calendar event by its ID."""
-    deleted = _store.delete(event_id)
-    return f"Event {event_id} deleted." if deleted else f"Event {event_id} not found."
+    return calendar_service.delete_calendar_event(event_id, calendar_id)

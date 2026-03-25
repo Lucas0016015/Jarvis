@@ -21,6 +21,9 @@ class Settings(BaseSettings):
     gmail_credentials_file: str | None = Field(default=None, alias="GMAIL_CREDENTIALS_FILE")
     gmail_token_file: str | None = Field(default=None, alias="GMAIL_TOKEN_FILE")
 
+    # Google Calendar
+    gcal_token_file: str | None = Field(default=None, alias="GCAL_TOKEN_FILE")
+
     # API
     api_host: str = Field(default="0.0.0.0", alias="API_HOST")
     api_port: int = Field(default=8000, alias="API_PORT")

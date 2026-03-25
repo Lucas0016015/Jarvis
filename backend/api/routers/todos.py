@@ -4,10 +4,9 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from backend.models.todo import Todo
-from backend.storage.json_store import JsonStore
+from backend.services import todos_service
 
 router = APIRouter()
-_store = JsonStore("todos")
 
 
 class TodoCreate(BaseModel):
@@ -18,44 +17,32 @@ class TodoCreate(BaseModel):
 
 @router.get("", response_model=list[Todo])
 def list_todos(show_completed: bool = False):
-    todos = [Todo(**t) for t in _store.all()]
-    if not show_completed:
-        todos = [t for t in todos if not t.completed]
-    return todos
+    return todos_service.list_todos(show_completed)
 
 
 @router.post("", response_model=Todo, status_code=201)
 def create_todo(body: TodoCreate):
-    from datetime import datetime
-    todo = Todo(
-        text=body.text,
-        priority=body.priority,
-        due_date=datetime.fromisoformat(body.due_date) if body.due_date else None,
-    )
-    _store.set(todo.id, todo.model_dump())
-    return todo
+    return todos_service.create_todo(body.text, body.priority, body.due_date)
 
 
 @router.get("/{todo_id}", response_model=Todo)
 def get_todo(todo_id: str):
-    data = _store.get(todo_id)
+    data = todos_service.get_todo(todo_id)
     if not data:
         raise HTTPException(status_code=404, detail="Todo not found")
-    return Todo(**data)
+    return data
 
 
 @router.patch("/{todo_id}/complete", response_model=Todo)
 def complete_todo(todo_id: str):
-    data = _store.get(todo_id)
+    data = todos_service.complete_todo(todo_id)
     if not data:
         raise HTTPException(status_code=404, detail="Todo not found")
-    todo = Todo(**data)
-    todo.completed = True
-    _store.set(todo.id, todo.model_dump())
-    return todo
+    return data
 
 
 @router.delete("/{todo_id}", status_code=204)
 def delete_todo(todo_id: str):
-    if not _store.delete(todo_id):
+    result = todos_service.delete_todo(todo_id)
+    if "not found" in result:
         raise HTTPException(status_code=404, detail="Todo not found")

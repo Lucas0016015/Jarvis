@@ -11,12 +11,10 @@ from httpx import AsyncClient, ASGITransport
 def isolated_stores(monkeypatch, tmp_path):
     monkeypatch.setenv("DATA_DIR", str(tmp_path))
     from backend.storage.json_store import JsonStore
-    import backend.api.routers.notes as notes_router
-    import backend.api.routers.todos as todos_router
-    import backend.api.routers.calendar as cal_router
-    notes_router._store = JsonStore("notes", data_dir=str(tmp_path))
-    todos_router._store = JsonStore("todos", data_dir=str(tmp_path))
-    cal_router._store = JsonStore("calendar", data_dir=str(tmp_path))
+    import backend.services.notes_service as notes_svc
+    import backend.services.todos_service as todos_svc
+    notes_svc._store = JsonStore("notes", data_dir=str(tmp_path))
+    todos_svc._store = JsonStore("todos", data_dir=str(tmp_path))
 
 
 @pytest.fixture
@@ -77,7 +75,12 @@ async def test_create_and_complete_todo(app):
 
 
 @pytest.mark.asyncio
+@pytest.mark.integration
 async def test_create_calendar_event(app):
+    pytest.importorskip("google.oauth2", reason="Google auth libraries not installed")
+    from backend.config import settings
+    if not settings.gcal_token_file or not settings.gmail_credentials_file:
+        pytest.skip("Google Calendar credentials not configured")
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         r = await client.post("/calendar", json={
             "title": "Team standup",

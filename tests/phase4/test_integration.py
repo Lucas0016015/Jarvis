@@ -15,24 +15,12 @@ from langchain_core.messages import HumanMessage
 def app_with_real_graph(tmp_path, monkeypatch):
     monkeypatch.setenv("DATA_DIR", str(tmp_path))
     from backend.storage.json_store import JsonStore
-    import backend.tools.notes as nm
-    import backend.tools.todos as tm
-    import backend.tools.calendar as cm
-    import backend.api.routers.notes as notes_router
-    import backend.api.routers.todos as todos_router
-    import backend.api.routers.calendar as cal_router
+    import backend.services.notes_service as notes_svc
+    import backend.services.todos_service as todos_svc
     import backend.api.dependencies as deps
 
-    store_n = JsonStore("notes", data_dir=str(tmp_path))
-    store_t = JsonStore("todos", data_dir=str(tmp_path))
-    store_c = JsonStore("calendar", data_dir=str(tmp_path))
-
-    nm._store = store_n
-    tm._store = store_t
-    cm._store = store_c
-    notes_router._store = store_n
-    todos_router._store = store_t
-    cal_router._store = store_c
+    notes_svc._store = JsonStore("notes", data_dir=str(tmp_path))
+    todos_svc._store = JsonStore("todos", data_dir=str(tmp_path))
 
     from backend.agent.graph import build_graph, reset_graph
     reset_graph()

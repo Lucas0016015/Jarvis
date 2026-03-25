@@ -5,6 +5,7 @@ from backend.tools.calendar import (
     create_calendar_event,
     list_calendar_events,
     get_calendar_event,
+    update_calendar_event,
     delete_calendar_event,
 )
 from backend.tools.email import list_emails, get_email, send_email, search_emails
@@ -25,6 +26,7 @@ ALL_TOOLS = [
     create_calendar_event,
     list_calendar_events,
     get_calendar_event,
+    update_calendar_event,
     delete_calendar_event,
     # Email (Gmail)
     list_emails,

@@ -11,17 +11,12 @@ import tempfile
 def isolated_store(monkeypatch, tmp_path):
     """Redirect all JSON stores to a temp directory per test."""
     monkeypatch.setenv("DATA_DIR", str(tmp_path))
-    # Reset singletons so they pick up the new DATA_DIR
-    import importlib
-    import backend.tools.notes as notes_mod
-    import backend.tools.todos as todos_mod
+    from backend.storage.json_store import JsonStore
+    import backend.services.notes_service as notes_svc
+    import backend.services.todos_service as todos_svc
 
-    notes_mod._store = __import__("backend.storage.json_store", fromlist=["JsonStore"]).JsonStore(
-        "notes", data_dir=str(tmp_path)
-    )
-    todos_mod._store = __import__("backend.storage.json_store", fromlist=["JsonStore"]).JsonStore(
-        "todos", data_dir=str(tmp_path)
-    )
+    notes_svc._store = JsonStore("notes", data_dir=str(tmp_path))
+    todos_svc._store = JsonStore("todos", data_dir=str(tmp_path))
     yield
 
 
