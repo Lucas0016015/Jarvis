@@ -1,0 +1,27 @@
+[railway]
+# Railway deployment configuration
+# Docs: https://docs.railway.com/guides/deploying-a-python-application
+
+# Python start command
+# Railway auto-detects Python and runs pip install -r requirements.txt
+# Override with this if needed
+startCommand = "uvicorn backend.api.main:app --host 0.0.0.0 --port $PORT"
+
+[railway.variable]
+# Override default PORT if Railway uses a different one
+PORT = "8000"
+
+[railway.service]
+# Backend runs on port 8000
+port = 8000
+
+[railway.health]
+# Health check endpoint
+path = "/api/v1/health/live"
+interval = 30
+threshold = 3
+
+[nixpacks]
+# Nixpacks build configuration for Python 3.12
+# Railway uses Nixpacks to detect and build Python apps
+python_version = "3.12"

@@ -9,28 +9,42 @@ __pycache__/
 dist/
 build/
 .eggs/
+.ruff_cache/
+.mypy_cache/
 
 # Environment
 .env
 *.env.local
 
-# Data / secrets
-data/
-*.json
-!package.json
-!tsconfig.json
+# Data / secrets (except package configs)
+data/*.db
+data/*.sqlite
+data/logs/
+data/audit_logs/
+data/token_logs/
+data/memory/*.json
 credentials.json
 token.json
+gcal_token.json
+.secrets.baseline
 
 # pytest
 .pytest_cache/
 .coverage
 htmlcov/
+coverage.xml
 
 # Node / Expo
 mobile/node_modules/
 mobile/.expo/
+mobile/.expo-shared/
 mobile/dist/
+
+# Docker
+docker-compose.override.yml
+
+# Alembic
+alembic/__pycache__/
 
 # macOS
 .DS_Store
@@ -38,3 +52,9 @@ mobile/dist/
 # IDE
 .vscode/
 .idea/
+*.swp
+*.swo
+*~
+
+# Logs
+*.log
