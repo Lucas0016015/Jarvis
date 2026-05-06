@@ -25,19 +25,28 @@ class EventUpdate(BaseModel):
 
 @router.get("")
 def list_events(upcoming_only: bool = Query(True), calendar_id: str = Query("primary")):
-    return calendar_service.list_calendar_events(upcoming_only, calendar_id)
+    try:
+        return calendar_service.list_calendar_events(upcoming_only, calendar_id)
+    except RuntimeError as e:
+        raise HTTPException(status_code=503, detail=str(e))
 
 
 @router.post("", status_code=201)
 def create_event(body: EventCreate, calendar_id: str = Query("primary")):
-    return calendar_service.create_calendar_event(
-        body.title, body.start_datetime, body.end_datetime, body.description, body.location, calendar_id
-    )
+    try:
+        return calendar_service.create_calendar_event(
+            body.title, body.start_datetime, body.end_datetime, body.description, body.location, calendar_id
+        )
+    except RuntimeError as e:
+        raise HTTPException(status_code=503, detail=str(e))
 
 
 @router.get("/{event_id}")
 def get_event(event_id: str, calendar_id: str = Query("primary")):
-    data = calendar_service.get_calendar_event(event_id, calendar_id)
+    try:
+        data = calendar_service.get_calendar_event(event_id, calendar_id)
+    except RuntimeError as e:
+        raise HTTPException(status_code=503, detail=str(e))
     if not data:
         raise HTTPException(status_code=404, detail="Event not found")
     return data
@@ -45,9 +54,12 @@ def get_event(event_id: str, calendar_id: str = Query("primary")):
 
 @router.put("/{event_id}")
 def update_event(event_id: str, body: EventUpdate, calendar_id: str = Query("primary")):
-    data = calendar_service.update_calendar_event(
-        event_id, body.title, body.start_datetime, body.end_datetime, body.description, body.location, calendar_id
-    )
+    try:
+        data = calendar_service.update_calendar_event(
+            event_id, body.title, body.start_datetime, body.end_datetime, body.description, body.location, calendar_id
+        )
+    except RuntimeError as e:
+        raise HTTPException(status_code=503, detail=str(e))
     if not data:
         raise HTTPException(status_code=404, detail="Event not found")
     return data
@@ -55,6 +67,9 @@ def update_event(event_id: str, body: EventUpdate, calendar_id: str = Query("pri
 
 @router.delete("/{event_id}", status_code=204)
 def delete_event(event_id: str, calendar_id: str = Query("primary")):
-    result = calendar_service.delete_calendar_event(event_id, calendar_id)
+    try:
+        result = calendar_service.delete_calendar_event(event_id, calendar_id)
+    except RuntimeError as e:
+        raise HTTPException(status_code=503, detail=str(e))
     if "not found" in result:
         raise HTTPException(status_code=404, detail="Event not found")

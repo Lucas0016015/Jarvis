@@ -13,12 +13,21 @@ router = APIRouter()
 @router.post("/chat", response_model=ChatResponse)
 async def chat(request: ChatRequest, graph=Depends(get_jarvis_graph)):
     """Blocking chat endpoint. Invokes the graph and returns the final AI response."""
+    # Thread ID = session_id for conversation isolation via checkpointer
+    config = {
+        "configurable": {
+            "thread_id": request.session_id or "default",
+        }
+    }
+
     state = await graph.ainvoke(
         {
             "messages": [HumanMessage(content=request.message)],
             "user_id": request.user_id,
             "session_id": request.session_id,
-        }
+            "persona": request.persona,
+        },
+        config=config,
     )
     ai_message = state["messages"][-1]
     return ChatResponse(content=ai_message.content, session_id=request.session_id)
@@ -39,12 +48,22 @@ async def ws_chat(websocket: WebSocket, graph=Depends(get_jarvis_graph)):
             data = json.loads(raw)
             message = data.get("message", "")
             session_id = data.get("session_id", "default")
+            persona = data.get("persona", "default")
+
+            # Thread ID = session_id for conversation isolation via checkpointer
+            config = {
+                "configurable": {
+                    "thread_id": session_id,
+                }
+            }
 
             async for event in graph.astream_events(
                 {
                     "messages": [HumanMessage(content=message)],
                     "session_id": session_id,
+                    "persona": persona,
                 },
+                config=config,
                 version="v2",
             ):
                 kind = event["event"]

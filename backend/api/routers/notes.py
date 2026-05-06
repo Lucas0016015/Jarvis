@@ -51,3 +51,23 @@ def delete_note(note_id: str):
     result = notes_service.delete_note(note_id)
     if "not found" in result:
         raise HTTPException(status_code=404, detail="Note not found")
+
+
+class ObsidianMigrateRequest(BaseModel):
+    vault_path: str
+
+
+class ObsidianMigrateResponse(BaseModel):
+    found: int
+    migrated: int
+    skipped: int
+    errors: list[str]
+
+
+@router.post("/import/obsidian", response_model=ObsidianMigrateResponse)
+def import_obsidian(body: ObsidianMigrateRequest):
+    from backend.scripts.migrate_obsidian_notes import migrate_notes
+    result = migrate_notes(body.vault_path)
+    if "error" in result:
+        raise HTTPException(status_code=400, detail=result["error"])
+    return result

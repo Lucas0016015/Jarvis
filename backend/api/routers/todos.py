@@ -25,9 +25,23 @@ def create_todo(body: TodoCreate):
     return todos_service.create_todo(body.text, body.priority, body.due_date)
 
 
+class TodoUpdate(BaseModel):
+    text: str | None = None
+    priority: Literal["low", "medium", "high"] | None = None
+    due_date: str | None = None
+
+
 @router.get("/{todo_id}", response_model=Todo)
 def get_todo(todo_id: str):
     data = todos_service.get_todo(todo_id)
+    if not data:
+        raise HTTPException(status_code=404, detail="Todo not found")
+    return data
+
+
+@router.put("/{todo_id}", response_model=Todo)
+def update_todo(todo_id: str, body: TodoUpdate):
+    data = todos_service.update_todo(todo_id, body.text, body.priority, body.due_date)
     if not data:
         raise HTTPException(status_code=404, detail="Todo not found")
     return data
