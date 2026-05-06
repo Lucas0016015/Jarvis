@@ -24,6 +24,12 @@ def complete_todo(todo_id: str) -> dict | None:
 
 
 @tool
+def update_todo(todo_id: str, text: str | None = None, priority: Literal["low", "medium", "high"] | None = None, due_date: str | None = None) -> dict | None:
+    """Update a to-do item's text, priority, or due_date (ISO format)."""
+    return todos_service.update_todo(todo_id, text, priority, due_date)
+
+
+@tool
 def delete_todo(todo_id: str) -> str:
     """Delete a to-do item by its ID."""
     return todos_service.delete_todo(todo_id)
