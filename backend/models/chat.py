@@ -7,6 +7,7 @@ class ChatRequest(BaseModel):
     message: str
     session_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     user_id: str = "default"
+    persona: str = "default"
 
 
 class ChatResponse(BaseModel):
