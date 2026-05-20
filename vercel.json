@@ -1,0 +1,27 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "version": 2,
+  "builds": [
+    {
+      "src": "web-next/package.json",
+      "use": "@vercel/next"
+    }
+  ],
+  "routes": [
+    {
+      "src": "/api/(.*)",
+      "dest": "https://your-backend-url.railway.app/api/v1/$1"
+    },
+    {
+      "src": "/(.*)",
+      "dest": "/web-next/$1"
+    }
+  ],
+  "env": {
+    "API_URL": "https://your-backend-url.railway.app"
+  },
+  "regions": ["iad1"],
+  "github": {
+    "enabled": false
+  }
+}

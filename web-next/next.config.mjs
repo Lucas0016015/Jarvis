@@ -1,29 +1,30 @@
 /** @type {import('next').NextConfig} */
-const API_URL = process.env.API_URL || 'http://127.0.0.1:8000';
-
 const nextConfig = {
+  output: 'standalone',
   async rewrites() {
+    const apiUrl = (process.env.API_URL || 'http://127.0.0.1:8001').trim();
+    console.log('[Next.js Rewrites] Proxy API_URL =', apiUrl);
     return [
       {
         source: '/api/:path*',
-        destination: `${API_URL}/api/v1/:path*`,
+        destination: `${apiUrl}/api/v1/:path*`,
       },
       {
         source: '/health',
-        destination: `${API_URL}/health`,
+        destination: `${apiUrl}/health`,
       },
     ];
   },
   images: {
     unoptimized: true,
   },
-  // Para que funcione en mobile vertical sin cortes
   eslint: {
-    dirs: ['src'],
+    ignoreDuringBuilds: true,
   },
   typescript: {
     ignoreBuildErrors: false,
   },
+  poweredByHeader: false,
 };
 
 export default nextConfig;

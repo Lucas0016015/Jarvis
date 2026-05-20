@@ -15,7 +15,7 @@ interface Task {
   priority: 'low' | 'medium' | 'high';
 }
 
-const API = 'http://localhost:8000/api/v1';
+const API = '/api';
 
 const PRIORITY_COLORS = {
   low: 'bg-green-400',
@@ -35,6 +35,9 @@ export default function TasksModePanel() {
       const res = await fetch(`${API}/todos?show_completed=true`);
       if (!res.ok) throw new Error('Failed to fetch tasks');
       const data = await res.json();
+      if (!Array.isArray(data)) {
+        throw new Error('Invalid response format');
+      }
       setTasks(data);
       setError(null);
     } catch (e) {

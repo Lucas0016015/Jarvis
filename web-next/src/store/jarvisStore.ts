@@ -4,11 +4,12 @@ import { persist } from 'zustand/middleware'
 /* ── Types ───────────────────────────────────────────────────────────── */
 
 export type ActivityState =
-  | 'idle'           // Esperando
-  | 'thinking'       // Procesando
-  | 'speaking'       // Hablando (TTS)
-  | 'listening'      // Escuchando (STT)
-  | 'error'          // Error de conexión
+  | 'idle'
+  | 'thinking'
+  | 'speaking'
+  | 'listening'
+  | 'error'
+  | 'sleep'
 
 export type PanelMode =
   | 'chat'
@@ -38,6 +39,26 @@ export interface Persona {
   icon: string
 }
 
+export interface ChatMessage {
+  id: string
+  role: 'user' | 'assistant'
+  content: string
+  isStreaming?: boolean
+  toolCalls?: Array<{
+    tool: string
+    input: Record<string, unknown>
+    output?: string
+  }>
+}
+
+export interface ConversationSession {
+  id: string
+  title: string
+  messages: ChatMessage[]
+  createdAt: number
+  updatedAt: number
+}
+
 export interface JarvisStore {
   /* ── Core state ── */
   activityState: ActivityState
@@ -58,6 +79,21 @@ export interface JarvisStore {
   persona: Persona | null
   availablePersonas: Persona[]
 
+  /* ── Chat global (persiste entre paneles) ── */
+  chatMessages: ChatMessage[]
+  chatInput: string
+  chatSessionId: string
+
+  /* ── Conversation History (local save) ── */
+  chatHistory: ConversationSession[]
+
+  /* ── Live chat text for ThinkingBubble and other UI ── */
+  lastAssistantText: string
+  lastUserText: string
+
+  /* ── Backend Health ── */
+  backendStatus: 'disconnected' | 'connecting' | 'connected' | 'error'
+
   /* ── Actions ── */
   setActivityState: (s: ActivityState) => void
   setPanelMode: (m: PanelMode) => void
@@ -77,7 +113,32 @@ export interface JarvisStore {
   setPersona: (p: Persona) => void
   setAvailablePersonas: (ps: Persona[]) => void
 
+  setChatMessages: (msgs: ChatMessage[]) => void
+  appendChatMessage: (msg: ChatMessage) => void
+  updateLastChatMessage: (updater: (last: ChatMessage) => ChatMessage) => void
+  setChatInput: (text: string) => void
+  setChatSessionId: (id: string) => void
+  clearChat: () => void
+
+  /* ── Conversation History Actions ── */
+  newConversation: () => void
+  loadConversation: (id: string) => void
+  renameConversation: (id: string, title: string) => void
+  deleteConversation: (id: string) => void
+
+  setLastAssistantText: (text: string) => void
+  setLastUserText: (text: string) => void
+
+  setBackendStatus: (s: 'disconnected' | 'connecting' | 'connected' | 'error') => void
+
   reset: () => void
+}
+
+function makeId(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID()
+  }
+  return `sess_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`
 }
 
 /* ── Store Instance ──────────────────────────────────────────────── */
@@ -101,6 +162,16 @@ export const useJarvisStore = create<JarvisStore>()(
   persona: null,
   availablePersonas: [],
 
+  chatMessages: [],
+  chatInput: '',
+  chatSessionId: makeId(),
+  chatHistory: [],
+
+  lastAssistantText: '',
+  lastUserText: '',
+
+  backendStatus: 'disconnected',
+
   /* actions */
   setActivityState: (activityState) => {
     const texts: Record<ActivityState, string> = {
@@ -109,6 +180,7 @@ export const useJarvisStore = create<JarvisStore>()(
       speaking: 'Transmitting Intelligence...',
       listening: 'Listening...',
       error: 'Connection Lost',
+      sleep: 'Neural Core Standby',
     }
     set({ activityState, statusText: texts[activityState] })
   },
@@ -137,7 +209,92 @@ export const useJarvisStore = create<JarvisStore>()(
   hideThinkingBubble: () => set({ thinkingBubbleVisible: false }),
 
   setPersona: (persona) => set({ persona }),
-  setAvailablePersonas: (availablePersonas) => set({ availablePersonas }),
+  setAvailablePersonas: (availablePersonas) => {
+    // Deduplicar por nombre
+    const deduped = Array.from(new Map(availablePersonas.map(p => [p.name, p])).values())
+    set({ availablePersonas: deduped })
+  },
+
+  setChatMessages: (chatMessages) => set({ chatMessages }),
+  appendChatMessage: (msg) => set((state) => ({ chatMessages: [...state.chatMessages, msg] })),
+  updateLastChatMessage: (updater) => set((state) => {
+    const msgs = state.chatMessages
+    if (msgs.length === 0) return state
+    const last = msgs[msgs.length - 1]
+    const updated = updater(last)
+    return { chatMessages: [...msgs.slice(0, -1), updated] }
+  }),
+  setChatInput: (chatInput) => set({ chatInput }),
+  setChatSessionId: (chatSessionId) => set({ chatSessionId }),
+  clearChat: () => set((state) => {
+    const msgs = state.chatMessages
+    if (msgs.length > 0) {
+      const title = msgs[0].content.slice(0, 40) || 'Nueva conversación'
+      const session: ConversationSession = {
+        id: state.chatSessionId,
+        title,
+        messages: msgs,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      }
+      const history = [session, ...state.chatHistory.filter(h => h.id !== session.id)].slice(0, 50)
+      return { chatMessages: [], chatInput: '', chatSessionId: makeId(), chatHistory: history }
+    }
+    return { chatMessages: [], chatInput: '', chatSessionId: makeId() }
+  }),
+
+  newConversation: () => set((state) => {
+    const msgs = state.chatMessages
+    if (msgs.length > 0) {
+      const title = msgs[0].content.slice(0, 40) || 'Nueva conversación'
+      const session: ConversationSession = {
+        id: state.chatSessionId,
+        title,
+        messages: msgs,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      }
+      const history = [session, ...state.chatHistory.filter(h => h.id !== session.id)].slice(0, 50)
+      return { chatMessages: [], chatInput: '', chatSessionId: makeId(), chatHistory: history }
+    }
+    return { chatMessages: [], chatInput: '', chatSessionId: makeId() }
+  }),
+  loadConversation: (id) => set((state) => {
+    const conv = state.chatHistory.find(h => h.id === id)
+    if (!conv) return state
+    // Guardar la conversación actual antes de cambiar
+    const currentMsgs = state.chatMessages
+    let history = state.chatHistory
+    if (currentMsgs.length > 0) {
+      const curSession: ConversationSession = {
+        id: state.chatSessionId,
+        title: currentMsgs[0].content.slice(0, 40) || 'Nueva conversación',
+        messages: currentMsgs,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      }
+      history = [curSession, ...history.filter(h => h.id !== curSession.id)].slice(0, 50)
+    }
+    return {
+      chatSessionId: conv.id,
+      chatMessages: conv.messages,
+      chatHistory: history,
+      chatInput: '',
+    }
+  }),
+  renameConversation: (id, title) => set((state) => ({
+    chatHistory: state.chatHistory.map(h =>
+      h.id === id ? { ...h, title } : h
+    ),
+  })),
+  deleteConversation: (id) => set((state) => ({
+    chatHistory: state.chatHistory.filter(h => h.id !== id),
+  })),
+
+  setLastAssistantText: (lastAssistantText) => set({ lastAssistantText }),
+  setLastUserText: (lastUserText) => set({ lastUserText }),
+
+  setBackendStatus: (backendStatus) => set({ backendStatus }),
 
   reset: () => set({
     activityState: 'idle',
@@ -148,6 +305,9 @@ export const useJarvisStore = create<JarvisStore>()(
     statusText: 'Neural Link Active',
     thinkingBubbleVisible: false,
     persona: null,
+    chatMessages: [],
+    chatInput: '',
+    chatSessionId: makeId(),
   }),
 }),
 {
@@ -157,6 +317,8 @@ export const useJarvisStore = create<JarvisStore>()(
     panelMode: state.panelMode,
     panelExpanded: state.panelExpanded,
     persona: state.persona,
+    chatMessages: state.chatMessages,
+    chatSessionId: state.chatSessionId,
   }),
 }
 )

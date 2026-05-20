@@ -141,7 +141,7 @@ def backup_notes_to_s3(notes_data: list[dict], backup_name: Optional[str] = None
 
     s3_key = f"{config.prefix}/notes/{backup_name}"
 
-    temp_file = f"data/temp_notes_{datetime.now().strftime('%s')}.json"
+    temp_file = f"data/temp_notes_{int(datetime.now(timezone.utc).timestamp())}.json"
     os.makedirs("data/temp", exist_ok=True)
 
     try:
@@ -192,7 +192,7 @@ def backup_todos_to_s3(todos_data: list[dict], backup_name: Optional[str] = None
 
     s3_key = f"{config.prefix}/todos/{backup_name}"
 
-    temp_file = f"data/temp_todos_{datetime.now().strftime('%s')}.json"
+    temp_file = f"data/temp_todos_{int(datetime.now(timezone.utc).timestamp())}.json"
     os.makedirs("data/temp", exist_ok=True)
 
     try:

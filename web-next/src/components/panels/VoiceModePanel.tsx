@@ -1,197 +1,236 @@
 'use client';
 
-import React, { useState, useRef } from 'react';
-import { Mic, Square, Play, Pause } from 'lucide-react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
+import { Mic, Square, Volume2, AlertCircle, Loader2 } from 'lucide-react';
 import { useJarvisStore } from '@/store/jarvisStore';
+import { useJarvisChat } from '@/hooks/useJarvisChat';
 
-/* ── VoiceModePanel ─────────────────────────────────────────────────────
-   STT recording + TTS playback panel with waveform visualization.
-   ─────────────────────────────────────────────────────────────────────── */
-
-const API = 'http://localhost:8000/api/v1';
-
-async function webmToWav(blob: Blob): Promise<Blob> {
-  const arrayBuffer = await blob.arrayBuffer();
-  const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
-  const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
-  const wavBuffer = audioBufferToWav(audioBuffer);
-  return new Blob([wavBuffer], { type: 'audio/wav' });
-}
-
-function audioBufferToWav(buffer: AudioBuffer): ArrayBuffer {
-  const numChannels = buffer.numberOfChannels;
-  const sampleRate = buffer.sampleRate;
-  const format = 1;
-  const bitDepth = 16;
-  const bytesPerSample = bitDepth / 8;
-  const blockAlign = numChannels * bytesPerSample;
-  const dataSize = buffer.length * blockAlign;
-  const headerSize = 44;
-  const totalSize = headerSize + dataSize;
-  const arrayBuffer = new ArrayBuffer(totalSize);
-  const view = new DataView(arrayBuffer);
-  const channels: Float32Array[] = [];
-  for (let i = 0; i < numChannels; i++) channels.push(buffer.getChannelData(i));
-  let offset = 0;
-  const write = (str: string) => { for (const c of str) view.setUint8(offset++, c.charCodeAt(0)); };
-  write('RIFF'); view.setUint32(offset, 36 + dataSize, true); offset += 4;
-  write('WAVE'); write('fmt '); view.setUint32(offset, 16, true); offset += 4;
-  view.setUint16(offset, format, true); offset += 2;
-  view.setUint16(offset, numChannels, true); offset += 2;
-  view.setUint32(offset, sampleRate, true); offset += 4;
-  view.setUint32(offset, sampleRate * blockAlign, true); offset += 4;
-  view.setUint16(offset, blockAlign, true); offset += 2;
-  view.setUint16(offset, bitDepth, true); offset += 2;
-  write('data'); view.setUint32(offset, dataSize, true); offset += 4;
-  for (let i = 0; i < buffer.length; i++) {
-    for (let ch = 0; ch < numChannels; ch++) {
-      const s = Math.max(-1, Math.min(1, channels[ch][i]));
-      view.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
-      offset += 2;
-    }
-  }
-  return arrayBuffer;
-}
+/* ── VoiceModePanel v9 — Voz conectada al Chat real ───────────────────
+   1. Graba tu voz con Web Speech API (Chrome STT)
+   2. Manda el texto al agente via WebSocket chat
+   3. Escucha nuevas respuestas del asistente y las lee en voz alta
+   4. NO depende de flags globales — usa el store de mensajes
+   ──────────────────────────────────────────────────────────────────── */
 
 export default function VoiceModePanel() {
   const { setActivityState } = useJarvisStore();
-  const [isRecording, setIsRecording] = useState(false);
-  const [isPlaying, setIsPlaying] = useState(false);
+  const { sendMessage: wsSend, isConnected, messages } = useJarvisChat();
+
+  const [status, setStatus] = useState<'idle'|'recording'|'thinking'|'speaking'|'error'>('idle');
+  const [errorMsg, setErrorMsg] = useState('');
   const [transcript, setTranscript] = useState('');
   const [recordingTime, setRecordingTime] = useState(0);
-  const [audioUrl, setAudioUrl] = useState<string | null>(null);
+  const [hasPermission, setHasPermission] = useState(true);
 
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-  const chunksRef = useRef<Blob[]>([]);
-  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const recognitionRef = useRef<any>(null);
+  const timerRef = useRef<any>(null);
+  // Ref para trackear qué mensajes ya fueron leidos por voz
+  const spokenIdsRef = useRef<Set<string>>(new Set());
 
-  const startRecording = async () => {
+  // Cleanup
+  useEffect(() => {
+    return () => {
+      stopTimer();
+      recognitionRef.current?.abort?.();
+      window.speechSynthesis?.cancel();
+    };
+  }, []);
+
+  const stopTimer = useCallback(() => {
+    if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
+  }, []);
+
+  const startTimer = useCallback(() => {
+    setRecordingTime(0);
+    timerRef.current = setInterval(() => setRecordingTime((p) => p + 1), 1000);
+  }, []);
+
+  // Efecto: cuando llega respuesta del asistente, hablarla
+  useEffect(() => {
+    if (messages.length === 0) return;
+    const last = messages[messages.length - 1];
+    if (last.role !== 'assistant' || last.isStreaming) return;
+    if (spokenIdsRef.current.has(last.id)) return;
+
+    // Marcar como leido y hablar
+    spokenIdsRef.current.add(last.id);
+    speakText(last.content);
+  }, [messages]);
+
+  const speakText = useCallback((text: string) => {
+    if (!window.speechSynthesis) return;
+    window.speechSynthesis.cancel();
+    const utter = new SpeechSynthesisUtterance(text);
+    utter.lang = 'es-ES';
+    utter.rate = 1.0;
+    utter.pitch = 1.0;
+    const voices = window.speechSynthesis.getVoices();
+    const es = voices.find((v) => v.lang?.startsWith('es'));
+    if (es) utter.voice = es;
+    utter.onstart = () => { setStatus('speaking'); setActivityState('speaking'); };
+    utter.onend = () => { setStatus('idle'); setActivityState('idle'); };
+    utter.onerror = () => { setStatus('idle'); setActivityState('idle'); };
+    window.speechSynthesis.speak(utter);
+  }, [setActivityState]);
+
+  const startListening = useCallback(async () => {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const recorder = new MediaRecorder(stream, { mimeType: 'audio/webm;codecs=opus' });
-      chunksRef.current = [];
-      mediaRecorderRef.current = recorder;
-
-      recorder.ondataavailable = (e) => { if (e.data.size > 0) chunksRef.current.push(e.data); };
-      recorder.onstop = async () => {
-        stream.getTracks().forEach(t => t.stop());
-        const blob = new Blob(chunksRef.current, { type: 'audio/webm' });
-        await sendForSTT(blob);
-        setIsRecording(false);
-        setActivityState('idle');
-        if (timerRef.current) clearInterval(timerRef.current);
-        setRecordingTime(0);
-      };
-
-      recorder.start(100);
-      setIsRecording(true);
-      setActivityState('listening');
-      setTranscript('');
-
-      timerRef.current = setInterval(() => setRecordingTime(prev => prev + 1), 1000);
-    } catch (e) { console.error('Mic error:', e); }
-  };
-
-  const stopRecording = () => {
-    if (mediaRecorderRef.current && isRecording) {
-      mediaRecorderRef.current.stop();
+      await navigator.mediaDevices.getUserMedia({ audio: true });
+      setHasPermission(true);
+    } catch {
+      setHasPermission(false);
+      return;
     }
-  };
 
-  const sendForSTT = async (blob: Blob) => {
-    try {
-      setActivityState('thinking');
-      const wavBlob = await webmToWav(blob);
-      const formData = new FormData();
-      formData.append('audio', wavBlob, 'recording.wav');
-      formData.append('language', 'es');
+    const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SR) {
+      setErrorMsg('Tu navegador no soporta Speech API. Usa Chrome o Edge.');
+      setStatus('error');
+      return;
+    }
 
-      const res = await fetch(`${API}/stt/transcribe`, {
-        method: 'POST', body: formData,
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setTranscript(data.text);
-        await synthesize(data.text);
+    const rec = new SR();
+    rec.lang = 'es-ES';
+    rec.continuous = true;
+    rec.interimResults = true;
+    recognitionRef.current = rec;
+
+    let finalTranscript = '';
+    setTranscript('');
+    setErrorMsg('');
+    setStatus('recording');
+    setActivityState('listening');
+    startTimer();
+
+    rec.onresult = (event: any) => {
+      let final = '';
+      for (let i = event.resultIndex; i < event.results.length; i++) {
+        if (event.results[i].isFinal) final += event.results[i][0].transcript;
       }
-    } catch (e) { console.error('STT error:', e); }
-  };
-
-  const synthesize = async (text: string) => {
-    try {
-      const res = await fetch(`${API}/tts/synthesize`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text, voice_id: 'es_ES-claribel_evans-medium', format: 'wav' }),
-      });
-      if (res.ok) {
-        const audioBlob = await res.blob();
-        const url = URL.createObjectURL(audioBlob);
-        setAudioUrl(url);
-        setIsPlaying(true);
-        const audio = new Audio(url);
-        audio.onended = () => { setIsPlaying(false); setActivityState('idle'); };
-        audio.onerror = () => setIsPlaying(false);
-        setActivityState('speaking');
-        audio.play();
+      if (final) {
+        finalTranscript += final;
+        setTranscript(finalTranscript);
       }
-    } catch (e) { console.error('TTS error:', e); }
-  };
+    };
 
-  const formatTime = (s: number) => `${Math.floor(s / 60).toString().padStart(2, '0')}:${(s % 60).toString().padStart(2, '0')}`;
+    rec.onerror = (event: any) => {
+      if (event.error === 'no-speech') return;
+      setErrorMsg(`Error: ${event.error}`);
+    };
+
+    rec.onend = () => {
+      if (status === 'recording') {
+        try { rec.start(); } catch { /* */ }
+      }
+    };
+
+    rec.start();
+  }, [setActivityState, startTimer, status]);
+
+  const stopListening = useCallback(() => {
+    stopTimer();
+    recognitionRef.current?.stop?.();
+    recognitionRef.current = null;
+
+    const text = transcript.trim();
+    if (!text) {
+      setStatus('idle');
+      setActivityState('idle');
+      return;
+    }
+
+    if (!isConnected) {
+      setErrorMsg('Chat offline. El agente no puede responder ahora.');
+      setStatus('error');
+      return;
+    }
+
+    // Enviar al chat real del agente
+    setStatus('thinking');
+    setActivityState('thinking');
+    wsSend(text);
+  }, [stopTimer, transcript, isConnected, wsSend, setActivityState]);
+
+  const formatTime = (s: number) =>
+    `${Math.floor(s / 60).toString().padStart(2, '0')}:${(s % 60).toString().padStart(2, '0')}`;
+
+  if (!hasPermission) {
+    return (
+      <div className="flex flex-col h-full items-center justify-center gap-4 px-4 text-center">
+        <AlertCircle className="w-12 h-12 text-red-400/40" />
+        <p className="text-[13px] text-white/40">
+          Necesito permiso para usar el microfono.
+          <br />
+          Hace click en el candado arriba a la izquierda y permití el acceso.
+        </p>
+      </div>
+    );
+  }
 
   return (
-    <div className="flex flex-col h-full items-center justify-center gap-6 px-4">
-      {/* Recording button */}
+    <div className="flex flex-col h-full items-center justify-center gap-5 px-4">
+      {/* Main button */}
       <button
-        onClick={isRecording ? stopRecording : startRecording}
-        className={`relative w-[88px] h-[88px] rounded-full flex items-center justify-center transition-all duration-300 ${
-          isRecording
-            ? 'bg-gradient-to-br from-red-500 to-red-600 shadow-[0_0_30px_rgba(255,68,68,0.4)]'
-            : 'bg-gradient-to-br from-cyan-500 to-blue-600 shadow-[0_0_30px_rgba(0,212,255,0.4)]'
+        onClick={status === 'recording' ? stopListening : startListening}
+        disabled={status === 'thinking' || status === 'speaking'}
+        className={`relative w-[92px] h-[92px] rounded-full flex items-center justify-center transition-all duration-300 ${
+          status === 'thinking' || status === 'speaking'
+            ? 'bg-gradient-to-br from-cyan-500 to-blue-600 opacity-60 cursor-not-allowed'
+            : status === 'recording'
+              ? 'bg-gradient-to-br from-red-500 to-red-600 shadow-[0_0_30px_rgba(255,68,68,0.5)] animate-pulse'
+              : 'bg-gradient-to-br from-cyan-500 to-blue-600 shadow-[0_0_30px_rgba(0,212,255,0.4)] hover:scale-105'
         }`}
       >
-        {isRecording && (
+        {status === 'recording' && (
           <span className="absolute inset-0 rounded-full border-2 border-white/20 animate-recording-ring" />
         )}
-        {isRecording ? (
+        {status === 'thinking' ? (
+          <Loader2 className="w-8 h-8 text-white animate-spin" />
+        ) : status === 'speaking' ? (
+          <Volume2 className="w-8 h-8 text-white animate-pulse" />
+        ) : status === 'recording' ? (
           <Square className="w-7 h-7 text-white fill-white" />
         ) : (
           <Mic className="w-8 h-8 text-white" />
         )}
       </button>
 
-      {/* Recording timer */}
-      {isRecording && (
+      {/* Timer */}
+      {status === 'recording' && (
         <p className="text-2xl font-mono font-semibold text-red-400 tracking-wider">
           {formatTime(recordingTime)}
         </p>
       )}
 
-      {/* Transcript */}
-      {transcript && (
-        <div className="w-full glass-strong rounded-xl p-4 text-center">
-          <p className="text-[10px] uppercase tracking-[0.2em] text-cyan-400/50 mb-2">You said</p>
-          <p className="text-[14px] text-white/80">{transcript}</p>
+      {/* Status text */}
+      <p className="text-[11px] text-cyan-400/50 tracking-[0.2em] uppercase text-center">
+        {status === 'idle' && (isConnected ? 'Toca el microfono para hablar con JARVIS' : 'Chat offline')}
+        {status === 'recording' && 'Escuchando... hace click para detener'}
+        {status === 'thinking' && 'JARVIS esta pensando...'}
+        {status === 'speaking' && 'JARVIS responde en voz alta...'}
+        {status === 'error' && 'Error'}
+      </p>
+
+      {/* Connection status */}
+      {!isConnected && (
+        <span className="text-[10px] px-2 py-1 rounded-full bg-red-400/10 text-red-400/70 border border-red-400/20">
+          Chat offline — conectando...
+        </span>
+      )}
+
+      {/* Error */}
+      {errorMsg && (
+        <div className="w-full max-w-sm glass-strong rounded-xl p-3">
+          <p className="text-[11px] text-red-400/80 text-center">{errorMsg}</p>
         </div>
       )}
 
-      {/* Playback controls */}
-      {audioUrl && !isRecording && (
-        <button
-          onClick={() => {
-            const audio = new Audio(audioUrl);
-            if (isPlaying) { audio.pause(); setIsPlaying(false); }
-            else { setIsPlaying(true); audio.play(); audio.onended = () => setIsPlaying(false); }
-          }}
-          className="flex items-center gap-2 px-4 py-2 glass-base rounded-xl hover:glass-hover transition-all"
-        >
-          {isPlaying ? <Pause className="w-4 h-4 text-cyan-400" /> : <Play className="w-4 h-4 text-cyan-400" />}
-          <span className="text-[12px] text-white/60">{isPlaying ? 'Playing...' : 'Play response'}</span>
-        </button>
-      )}
-
-      {!isRecording && !transcript && (
-        <p className="text-[12px] text-white/20 text-center">Tap the microphone to speak</p>
+      {/* Transcript */}
+      {transcript && (
+        <div className="w-full glass-strong rounded-xl p-4">
+          <p className="text-[10px] uppercase tracking-[0.2em] text-cyan-400/50 mb-1">Escuche</p>
+          <p className="text-[14px] text-white/80">{transcript}</p>
+        </div>
       )}
     </div>
   );

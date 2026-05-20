@@ -1,179 +1,190 @@
-'use client';
+'use client'
 
-import React from 'react';
-import dynamic from 'next/dynamic';
-import { useJarvisStore } from '@/store/jarvisStore';
-import CommandPalette from '@/components/CommandPalette';
+import React, { useState } from 'react'
+import dynamic from 'next/dynamic'
+import { useJarvisStore } from '@/store/jarvisStore'
+import { AppSidebar } from '@/components/AppSidebar'
+import { ScrollArea } from '@/components/ui/scroll-area'
+import { Mic, Zap, MessageCircle, BrainCircuit, Moon, AlertTriangle } from 'lucide-react'
 
-const NeuralBrainScene  = dynamic(() => import('@/components/NeuralBrainScene'),  { ssr: false });
-const StatusBar         = dynamic(() => import('@/components/StatusBar'),         { ssr: false });
-const MicButton         = dynamic(() => import('@/components/MicButton'),         { ssr: false });
-const AudioVisualizer   = dynamic(() => import('@/components/AudioVisualizer'),  { ssr: false });
-const OrbitalNav        = dynamic(() => import('@/components/OrbitalNavigation'), { ssr: false });
-const ChatPanel         = dynamic(() => import('@/components/panels/ChatModePanel'),       { ssr: false });
-const TasksPanel        = dynamic(() => import('@/components/panels/TasksModePanel'),      { ssr: false });
-const NotesPanel        = dynamic(() => import('@/components/panels/NotesModePanel'),      { ssr: false });
-const VoicePanel        = dynamic(() => import('@/components/panels/VoiceModePanel'),      { ssr: false });
-const TimerPanel        = dynamic(() => import('@/components/panels/TimerModePanel'),      { ssr: false });
-const EmailPanel        = dynamic(() => import('@/components/panels/EmailModePanel'),      { ssr: false });
-const SettingsPanel     = dynamic(() => import('@/components/panels/SettingsPanel'),       { ssr: false });
-const PersonalitiesPanel = dynamic(() => import('@/components/panels/PersonalitiesPanel'), { ssr: false });
+/* ── Lazy-load panels + brain + bubble + voice ───────────────── */
+const BrainBackground = dynamic(() => import('@/components/BrainBackground'), { ssr: false })
+const ThinkingBubble  = dynamic(() => import('@/components/ThinkingBubble'),  { ssr: false })
+const VoiceControls   = dynamic(() => import('@/components/VoiceControls'),   { ssr: false })
 
-const SECTION_PANELS: Partial<Record<string, React.ComponentType>> = {
-  chat:          ChatPanel,
-  tasks:         TasksPanel,
-  notes:         NotesPanel,
-  voice:         VoicePanel,
-  timer:         TimerPanel,
-  email:         EmailPanel,
-  settings:      SettingsPanel,
-  personalities: PersonalitiesPanel,
-};
+const ChatPanel        = dynamic(() => import('@/components/panels/ChatModePanel'),       { ssr: false })
+const TasksPanel       = dynamic(() => import('@/components/panels/TasksModePanel'),      { ssr: false })
+const NotesPanel       = dynamic(() => import('@/components/panels/NotesModePanel'),      { ssr: false })
+const VoicePanel       = dynamic(() => import('@/components/panels/VoiceModePanel'),      { ssr: false })
+const TimerPanel       = dynamic(() => import('@/components/panels/TimerModePanel'),      { ssr: false })
+const EmailPanel       = dynamic(() => import('@/components/panels/EmailModePanel'),      { ssr: false })
+const SettingsPanel    = dynamic(() => import('@/components/panels/SettingsPanel'),       { ssr: false })
+const PersonalitiesPanel = dynamic(() => import('@/components/panels/PersonalitiesPanel'), { ssr: false })
 
-const SECTION_TITLES: Record<string, string> = {
-  chat: 'Chat', tasks: 'Tasks', notes: 'Notes', voice: 'Voice',
-  timer: 'Timer', email: 'Email', settings: 'Settings', personalities: 'Personas',
-};
-
-function HomeView() {
-  const { activityState } = useJarvisStore();
-  return (
-    <div className="flex flex-col h-full">
-      <div className="absolute inset-0 pointer-events-none z-0">
-        <div className="absolute top-[15%] left-1/2 -translate-x-1/2 w-[320px] h-[320px] rounded-full"
-          style={{ background: 'radial-gradient(circle, rgba(0,212,255,0.07) 0%, transparent 70%)' }} />
-      </div>
-
-      <div className="relative z-10 w-full" style={{ height: '45%', minHeight: 180 }}>
-        <NeuralBrainScene state={activityState} />
-      </div>
-
-      <div className="relative z-20 flex justify-center -mt-5 mb-3">
-        <MicButton />
-      </div>
-
-      <div className="px-4 mb-3">
-        <AudioVisualizer />
-      </div>
-
-      <div className="mb-2">
-        <OrbitalNav />
-      </div>
-    </div>
-  );
+const PANELS: Record<string, React.ComponentType> = {
+  chat: ChatPanel, notes: NotesPanel, tasks: TasksPanel,
+  voice: VoicePanel, timer: TimerPanel, email: EmailPanel,
+  settings: SettingsPanel, personalities: PersonalitiesPanel,
 }
 
-function SectionView({ screen }: { screen: string }) {
-  const { goBack } = useJarvisStore();
-  const Panel = SECTION_PANELS[screen];
-  const title = SECTION_TITLES[screen] ?? screen;
-
-  return (
-    <div className="flex flex-col h-full">
-      <div className="flex items-center gap-3 px-4 h-12 shrink-0 border-b"
-        style={{ borderColor: 'rgba(0,212,255,0.08)' }}>
-        <button
-          onClick={goBack}
-          className="flex items-center justify-center w-8 h-8 rounded-xl transition-all"
-          style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.07)' }}
-          aria-label="Go back"
-        >
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.5)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <polyline points="15 18 9 12 15 6"/>
-          </svg>
-        </button>
-        <span className="text-[11px] font-semibold tracking-[0.2em] uppercase"
-          style={{ color: 'rgba(255,255,255,0.5)' }}>
-          {title}
-        </span>
-      </div>
-
-      <div className="flex-1 min-h-0 overflow-hidden">
-        {Panel ? <Panel /> : (
-          <div className="flex items-center justify-center h-full">
-            <p className="text-xs text-white/20">Coming soon</p>
-          </div>
-        )}
-      </div>
-    </div>
-  );
+/* ── State meta for status indicator ─────────────────────────── */
+const STATE_META: Record<string, { label: string; color: string; icon: React.ElementType }> = {
+  idle:      { label: 'Neural Link Active', color: '#44ccdd', icon: BrainCircuit },
+  listening: { label: 'Audio Input',        color: '#00ff88', icon: Mic },
+  thinking:  { label: 'Processing',         color: '#ffaa00', icon: Zap },
+  speaking:  { label: 'Transmitting',       color: '#00d4ff', icon: MessageCircle },
+  error:     { label: 'System Error',       color: '#ff4444', icon: AlertTriangle },
+  sleep:     { label: 'Standby',            color: '#5566aa', icon: Moon },
 }
 
-export default function RootPage() {
-  const { currentScreen } = useJarvisStore();
-  const [mounted, setMounted] = React.useState(false);
-  const [scale, setScale] = React.useState(1);
+/* ── Status Indicator (top-right) ────────────────────────────── */
+function StatusIndicator() {
+  const { activityState } = useJarvisStore()
+  const meta = STATE_META[activityState] || STATE_META.idle
 
-  React.useEffect(() => setMounted(true), []);
+  return (
+    <div className="fixed top-5 right-5 z-50 flex items-center gap-2 px-3.5 py-2 rounded-full"
+      style={{
+        background: 'rgba(0,0,0,0.25)',
+        backdropFilter: 'blur(12px)',
+        border: '1px solid rgba(255,255,255,0.05)',
+      }}
+    >
+      <div
+        className="w-2 h-2 rounded-full transition-all duration-300"
+        style={{
+          background: meta.color,
+          boxShadow: `0 0 ${activityState === 'thinking' ? '16px' : '8px'} ${meta.color}`,
+          animation: activityState === 'thinking' || activityState === 'listening' ? 'statusPulse 1.2s infinite' : 'none',
+        }}
+      />
+      <span className="text-xs font-medium text-white/60">{meta.label}</span>
+    </div>
+  )
+}
 
-  React.useEffect(() => {
-    const updateScale = () => {
-      const availH = window.innerHeight - 32;
-      const availW = window.innerWidth - 32;
-      const scaleH = availH / 844;
-      const scaleW = availW / 390;
-      setScale(Math.min(scaleH, scaleW, 1));
-    };
-    updateScale();
-    window.addEventListener('resize', updateScale);
-    return () => window.removeEventListener('resize', updateScale);
-  }, []);
+/* ── Control Dock (bottom-center) ─────────────────────────────── */
+function ControlDock() {
+  const { activityState, setActivityState } = useJarvisStore()
+  const states: Array<'idle' | 'thinking' | 'speaking'> = ['idle', 'thinking', 'speaking']
 
-  const isHome = currentScreen === 'home';
-
-  if (!mounted) {
-    return (
-      <div className="w-screen h-screen flex items-center justify-center"
-        style={{ background: '#0d0d12' }}>
-        <div className="text-center">
-          <div className="w-12 h-12 mx-auto mb-4 border-2 rounded-full animate-spin"
-            style={{ borderColor: 'rgba(0,212,255,0.2)', borderTopColor: '#00d4ff', borderRightColor: '#ff00a0' }} />
-          <p className="text-[10px] tracking-[0.4em] uppercase" style={{ color: 'rgba(0,212,255,0.4)' }}>
-            Initializing...
-          </p>
-        </div>
-      </div>
-    );
+  const labels = {
+    idle: '⏸ Idle',
+    thinking: '⚡ Pensando',
+    speaking: '💬 Hablando',
   }
 
   return (
-    <div className="w-screen h-screen flex items-center justify-center"
-      style={{ background: '#0d0d12' }}>
+    <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex gap-2.5 p-2 rounded-[14px]"
+      style={{
+        background: 'rgba(0,0,0,0.35)',
+        backdropFilter: 'blur(16px)',
+        border: '1px solid rgba(255,255,255,0.06)',
+      }}
+    >
+      {states.map((s) => (
+        <button
+          key={s}
+          onClick={() => setActivityState(s)}
+          className={`px-4 py-2.5 rounded-[11px] text-xs font-medium transition-all duration-300 cursor-pointer ${
+            activityState === s
+              ? 'text-white font-semibold'
+              : 'text-white/55 hover:text-white hover:bg-white/[0.06]'
+          }`}
+          style={
+            activityState === s
+              ? {
+                  background: 'linear-gradient(135deg, rgba(236,72,153,.25), rgba(64,224,208,.15))',
+                  boxShadow: '0 0 20px rgba(236,72,153,.25)',
+                }
+              : { background: 'rgba(255,255,255,0.03)' }
+          }
+        >
+          {labels[s]}
+        </button>
+      ))}
+    </div>
+  )
+}
 
-      <div
-        className="relative overflow-hidden flex flex-col"
-        style={{
-          width: 390,
-          height: 844,
-          borderRadius: 44,
-          background: '#0a0a0f',
-          boxShadow: '0 0 0 1px rgba(255,255,255,0.08), 0 40px 80px rgba(0,0,0,0.8), 0 0 60px rgba(0,212,255,0.04)',
-          transform: `scale(${scale})`,
-          transformOrigin: 'center center',
-        }}
-      >
-        <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[120px] h-[34px] z-50"
-          style={{ background: '#0a0a0f', borderRadius: '0 0 20px 20px' }} />
+/* ── Hint ────────────────────────────────────────────────────── */
+function Hint() {
+  return (
+    <div className="fixed bottom-20 left-1/2 -translate-x-1/2 z-30 text-white/25 text-[11px] whitespace-nowrap pointer-events-none">
+      Arrastra para orbitar · Scroll para zoom
+    </div>
+  )
+}
 
-        <StatusBar />
-        <CommandPalette />
+/* ══════════════════════════════════════════════════════════════
+   ROOT PAGE — CINEMATIC JARVIS
+   Brain 3D as full background. Panels float with glass morphism.
+══════════════════════════════════════════════════════════════ */
+export default function RootPage() {
+  const [panelOpen, setPanelOpen] = useState(true)
+  const { currentScreen } = useJarvisStore()
+  const Panel = PANELS[currentScreen] || ChatPanel
 
-        <div className="flex-1 min-h-0 relative">
-          {isHome ? <HomeView /> : <SectionView screen={currentScreen} />}
-        </div>
+  return (
+    <div className="relative w-screen h-screen overflow-hidden bg-[#0a0a0f]">
+      {/* 1. Brain 3D Background (z-0) */}
+      <BrainBackground />
 
-        <div className="flex justify-center pb-2 pt-1 shrink-0">
-          <div className="w-[130px] h-[5px] rounded-full"
-            style={{ background: 'rgba(255,255,255,0.2)' }} />
-        </div>
+      {/* 2. Status Badge (z-50) */}
+      <StatusIndicator />
+
+      {/* 3. Thinking Bubble (z-40) */}
+      <ThinkingBubble />
+
+      {/* 4. Control Dock REPLACED with Voice Controls (mic + waves + navbar) */}
+      <VoiceControls />
+
+      {/* 5. Floating Title */}
+      <div className="fixed top-5 left-1/2 -translate-x-1/2 z-40 pointer-events-none">
+        <h1
+          className="text-xl font-bold tracking-[0.25em] text-white/70"
+          style={{ textShadow: '0 0 30px rgba(68,204,221,0.25)' }}
+        >
+          JARVIS
+        </h1>
       </div>
 
-      <div className="absolute bottom-4 left-1/2 -translate-x-1/2 text-center">
-        <p className="text-[9px] tracking-[0.2em] uppercase"
-          style={{ color: 'rgba(255,255,255,0.12)' }}>
-          JARVIS v3.0 · Mobile Preview
-        </p>
+      {/* 7. UI Overlay Layer (z-20) */}
+      <div className="relative z-20 flex h-full w-full pointer-events-none">
+        {/* Sidebar */}
+        <div className="pointer-events-auto shrink-0 h-full">
+          <AppSidebar />
+        </div>
+
+        {/* Main panel area (right) */}
+        <div className="flex-1 flex justify-end items-start p-4 h-full">
+          {panelOpen && (
+            <div
+              className="pointer-events-auto w-[420px] max-w-[42vw] h-[85vh] rounded-2xl overflow-hidden animate-fade-in"
+              style={{
+                background: 'rgba(10,10,15,0.75)',
+                backdropFilter: 'blur(20px)',
+                border: '1px solid rgba(255,255,255,0.06)',
+                boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
+              }}
+            >
+              <ScrollArea className="h-full">
+                <Panel />
+              </ScrollArea>
+            </div>
+          )}
+
+          {/* Panel toggle button (when closed) */}
+          {!panelOpen && (
+            <button
+              onClick={() => setPanelOpen(true)}
+              className="pointer-events-auto mt-4 px-3 py-2 rounded-xl text-xs text-white/40 bg-white/[0.03] border border-white/[0.06] hover:text-white hover:bg-white/[0.06] transition-all"
+            >
+              Abrir panel
+            </button>
+          )}
+        </div>
       </div>
     </div>
-  );
+  )
 }

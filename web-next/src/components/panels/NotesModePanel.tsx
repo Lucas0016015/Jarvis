@@ -12,7 +12,7 @@ interface Note {
   id: string; title: string; content: string; tags: string[]
 }
 
-const API = 'http://localhost:8000/api/v1';
+const API = '/api';
 
 export default function NotesModePanel() {
   const [notes, setNotes] = useState<Note[]>([]);
@@ -27,6 +27,9 @@ export default function NotesModePanel() {
       const res = await fetch(`${API}/notes`);
       if (!res.ok) throw new Error('Failed to fetch notes');
       const data = await res.json();
+      if (!Array.isArray(data)) {
+        throw new Error('Invalid response format');
+      }
       setNotes(data);
       setError(null);
     } catch (e) {

@@ -1,71 +1,53 @@
 @echo off
-title JARVIS — Iniciando...
-color 0A
-cls
+:: JARVIS Launcher DEFINITIVO — Levanta backend + frontend en orden
+
+cd /d "C:\Users\First\Documents\Python Projects\javis0.0\jarvis-next"
+
+title JARVIS Launcher
+color 0E
+
+echo ==========================================
+echo    JARVIS NEURAL INTERFACE
+echo ==========================================
+echo.
+
+:: Paso 1: Limpiar procesos viejos
+echo [1/4] Limpiando procesos...
+taskkill /F /IM node.exe /T >NUL 2>NUL
+taskkill /F /IM python.exe /T >NUL 2>NUL
+timeout /t 2 /nobreak >NUL
+echo      OK
+
+:: Paso 2: Levantar BACKEND
+echo.
+echo [2/4] Iniciando BACKEND...
+start "JARVIS BACKEND" cmd /k "cd /d "C:\Users\First\Documents\Python Projects\javis0.0\jarvis-next" && color 0A && echo BACKEND INICIANDO... && echo Espera que diga 'Application startup complete' && echo. && venv\Scripts\python.exe -m uvicorn backend.api.main:app --host 127.0.0.1 --port 8001 --reload"
+
+echo      Esperando 20 segundos para que el backend arranque...
+timeout /t 20 /nobreak >NUL
+
+:: Paso 3: Levantar FRONTEND
+echo.
+echo [3/4] Iniciando FRONTEND...
+start "JARVIS FRONTEND" cmd /k "cd /d "C:\Users\First\Documents\Python Projects\javis0.0\jarvis-next\web-next" && color 0B && echo FRONTEND INICIANDO... && set API_URL=http://127.0.0.1:8001 && npm run dev -- --port 3001"
+
+echo      Esperando 15 segundos...
+timeout /t 15 /nobreak >NUL
+
+:: Paso 4: Abrir navegador
+echo.
+echo [4/4] Abriendo Chrome...
+start chrome "http://localhost:3001"
 
 echo.
-echo  ╔══════════════════════════════════════╗
-echo  ║     JARVIS NEURAL INTERFACE        ║
-echo  ╚══════════════════════════════════════╝
+echo ==========================================
+echo    JARVIS LISTO
+
+echo    Chat: http://localhost:3001
+	echo    Backend: http://localhost:8001
+echo ==========================================
 echo.
-
-echo [1/5] Liberando puertos...
-for /f "tokens=5" %%a in ('netstat -ano ^| findstr ":8000 " 2^>nul') do (
-    taskkill /F /PID %%a >nul 2>&1
-)
-for /f "tokens=5" %%a in ('netstat -ano ^| findstr ":3000 " 2^>nul') do (
-    taskkill /F /PID %%a >nul 2>&1
-)
-for /f "tokens=5" %%a in ('netstat -ano ^| findstr ":1234 " 2^>nul') do (
-    taskkill /F /PID %%a >nul 2>&1
-)
-timeout /t 2 /nobreak >nul
-
-echo [2/5] Verificando entorno Python...
-if not exist "venv\Scripts\activate.bat" (
-    echo     Creando entorno virtual...
-    python -m venv venv
-)
-call venv\Scripts\activate.bat
-
-echo [3/5] Verificando LM Studio (puerto 1234)...
-curl -s http://127.0.0.1:1234/v1/models >nul 2>&1
-if %errorlevel%==0 (
-    echo     [OK] LM Studio detectado
-) else (
-    echo     [AVISO] LM Studio no detectado en puerto 1234
-    echo     El backend igual arrancara, pero chat no funcionara sin LLM
-)
-
-echo [4/5] Iniciando Backend (puerto 8000)...
-start "JARVIS Backend" cmd /k "cd /d %~dp0 && call venv\Scripts\activate.bat && python -m uvicorn backend.api.main:app --host 127.0.0.1 --port 8000 --reload"
-timeout /t 6 /nobreak >nul
-
-echo [5/5] Verificando backend...
-curl -s http://localhost:8000/api/v1/health >nul 2>&1
-if %errorlevel%==0 (
-    echo     [OK] Backend corriendo en http://localhost:8000
-) else (
-    echo     [ADVERTENCIA] Backend tardando en arrancar, continuando...
-)
-
-echo.
-echo [+] Iniciando Frontend (puerto 3000)...
-start "JARVIS Frontend" cmd /k "cd /d %~dp0web-next && npm run dev"
-timeout /t 8 /nobreak >nul
-
-echo.
-start http://localhost:3000
-
-echo.
-echo  ╔══════════════════════════════════════╗
-echo  ║       JARVIS LISTO                   ║
-echo  ╠══════════════════════════════════════╣
-echo  ║  Frontend:  http://localhost:3000   ║
-echo  ║  Backend:   http://localhost:8000   ║
-echo  ║  API Docs:  http://localhost:8000/docs║
-echo  ╠══════════════════════════════════════╣
-echo  ║  Requiere:  LM Studio en :1234      ║
-echo  ╚══════════════════════════════════════╝
+echo Se abrieron 3 ventanas: BACKEND + FRONTEND + CHROME
+echo NO cerrar esta ventana ni las otras.
 echo.
 pause

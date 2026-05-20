@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { useJarvisStore } from '@/store/jarvisStore';
 
 export interface ChatMessage {
@@ -17,17 +17,11 @@ export interface ChatMessage {
 
 interface AppSettings {
   apiUrl: string;
-  llmProvider: string;
-  modelName: string;
-  theme: string;
   autoConnect: boolean;
 }
 
 const DEFAULT_SETTINGS: AppSettings = {
-  apiUrl: 'http://localhost:8000',
-  llmProvider: 'ollama',
-  modelName: 'llama3.2',
-  theme: 'dark',
+  apiUrl: 'http://localhost:8001',
   autoConnect: true,
 };
 
@@ -47,203 +41,210 @@ function makeId(): string {
   return `sess_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`;
 }
 
+/* ── Global WebSocket ──────────────────────────────────────────────── */
+let globalWs: WebSocket | null = null;
+let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+
 export function useJarvisChat() {
-  const { setActivityState, persona, setAvailablePersonas } = useJarvisStore();
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
-  const [input, setInput] = useState('');
+  const store = useJarvisStore();
   const [status, setStatus] = useState<'disconnected' | 'connecting' | 'connected' | 'error'>('disconnected');
-  const [errorRetry, setErrorRetry] = useState(0);
   const [settings] = useState<AppSettings>(loadSettings);
-  const wsRef = useRef<WebSocket | null>(null);
-  const sessionId = useRef<string>(makeId());
-  const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const errorRetryRef = useRef(0);
 
-  useEffect(() => { errorRetryRef.current = errorRetry; }, [errorRetry]);
-
+  // Abrir WebSocket al montar (SOLO en browser)
   useEffect(() => {
-    fetch(`${settings.apiUrl}/api/v1/personas`)
-      .then(r => r.json())
-      .then(setAvailablePersonas)
-      .catch(() => {});
-  }, [settings.apiUrl, setAvailablePersonas]);
-
-  const connect = useCallback(() => {
-    if (reconnectTimer.current) { clearTimeout(reconnectTimer.current); reconnectTimer.current = null; }
-    if (wsRef.current?.readyState === WebSocket.OPEN) return;
-    if (wsRef.current) { wsRef.current.close(); wsRef.current = null; }
+    if (typeof window === 'undefined') return;
 
     setStatus('connecting');
+    store.setBackendStatus('connecting');
 
-    let wsUrl: string;
-    try {
-      const wsBase = settings.apiUrl.replace(/^http/, 'ws');
-      wsUrl = `${wsBase}/api/v1/ws/chat`;
-    } catch {
-      wsUrl = 'ws://localhost:8000/ws/chat';
-    }
+    const connect = () => {
+      if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
+      if (globalWs) { globalWs.close(); globalWs = null; }
 
-    let ws: WebSocket;
-    try {
-      ws = new WebSocket(wsUrl);
-    } catch {
-      setStatus('error');
-      setErrorRetry((prev) => prev + 1);
-      return;
-    }
-
-    const handleClose = () => {
-      wsRef.current = null;
-      setStatus((currentStatus) => {
-        if (currentStatus !== 'disconnected') {
-          if (settings.autoConnect) {
-            const delay = Math.min(1000 * Math.pow(2, errorRetryRef.current), 30000);
-            reconnectTimer.current = setTimeout(connect, delay);
-          }
-        }
-        return 'disconnected';
-      });
-    };
-
-    const handleError = () => {
-      setStatus('error');
-      setErrorRetry((prev) => prev + 1);
-    };
-
-    ws.onopen = () => {
-      wsRef.current = ws;
-      setStatus('connected');
-      setErrorRetry(0);
-    };
-    ws.onclose = handleClose;
-    ws.onerror = handleError;
-
-    ws.onmessage = (event) => {
+      const wsUrl = 'ws://127.0.0.1:8001/api/v1/ws/chat';
+      let ws: WebSocket;
       try {
-        const data = JSON.parse(event.data);
+        ws = new WebSocket(wsUrl);
+      } catch (e) {
+        setStatus('error');
+        store.setBackendStatus('error');
+        return;
+      }
 
-        if (data.type === 'tool_start') {
-          setActivityState('thinking');
-          setMessages((prev) => {
-            const last = prev[prev.length - 1];
-            if (last && last.role === 'assistant') {
-              return [
-                ...prev.slice(0, -1),
-                { ...last, toolCalls: [...(last.toolCalls || []), { tool: data.tool_name, input: data.tool_input }] },
-              ];
-            }
-            return prev;
-          });
+      ws.onopen = () => {
+        globalWs = ws;
+        setStatus('connected');
+        store.setBackendStatus('connected');
+      };
+
+      ws.onclose = () => {
+        globalWs = null;
+        setStatus('disconnected');
+        store.setBackendStatus('disconnected');
+        if (settings.autoConnect) {
+          reconnectTimer = setTimeout(connect, 3000);
         }
+      };
 
-        if (data.type === 'tool_end') {
-          setMessages((prev) => {
-            const last = prev[prev.length - 1];
+      ws.onerror = () => {
+        setStatus('error');
+        store.setBackendStatus('error');
+      };
+
+      ws.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+
+          if (data.type === 'token' && data.content) {
+            const msgs = useJarvisStore.getState().chatMessages;
+            const last = msgs[msgs.length - 1];
+            if (last && last.isStreaming && last.role === 'assistant') {
+              const updated = { ...last, content: last.content + data.content };
+              useJarvisStore.setState({ chatMessages: [...msgs.slice(0, -1), updated] });
+              store.setLastAssistantText(updated.content);
+            } else {
+              const newMsg: ChatMessage = { id: makeId(), role: 'assistant', content: data.content, isStreaming: true };
+              useJarvisStore.setState({ chatMessages: [...msgs, newMsg] });
+              store.setLastAssistantText(data.content);
+            }
+          }
+
+          if (data.type === 'tool_start') {
+            store.setActivityState('thinking');
+            const msgs = useJarvisStore.getState().chatMessages;
+            const last = msgs[msgs.length - 1];
             if (last && last.role === 'assistant') {
-              return [
-                ...prev.slice(0, -1),
-                {
+              useJarvisStore.setState({
+                chatMessages: [...msgs.slice(0, -1), {
+                  ...last,
+                  toolCalls: [...(last.toolCalls || []), { tool: data.tool_name, input: data.tool_input }],
+                }]
+              });
+            }
+          }
+
+          if (data.type === 'tool_end') {
+            const msgs = useJarvisStore.getState().chatMessages;
+            const last = msgs[msgs.length - 1];
+            if (last && last.role === 'assistant') {
+              useJarvisStore.setState({
+                chatMessages: [...msgs.slice(0, -1), {
                   ...last,
                   toolCalls: last.toolCalls?.map((tc, i) =>
                     i === (last.toolCalls?.length || 0) - 1
                       ? { ...tc, output: typeof data.tool_output === 'string' ? data.tool_output : JSON.stringify(data.tool_output) }
                       : tc
                   ),
-                },
-              ];
+                }]
+              });
             }
-            return prev;
-          });
-        }
+          }
 
-        if (data.type === 'token' && data.content) {
-          setMessages((prev) => {
-            const last = prev[prev.length - 1];
+          if (data.type === 'done') {
+            const msgs = useJarvisStore.getState().chatMessages;
+            const last = msgs[msgs.length - 1];
             if (last && last.isStreaming) {
-              return [...prev.slice(0, -1), { ...last, content: last.content + data.content }];
+              useJarvisStore.setState({ chatMessages: [...msgs.slice(0, -1), { ...last, isStreaming: false }] });
+              store.setLastAssistantText(last.content);
+              store.setActivityState('idle');
+              // Auto-TTS: hablar la respuesta si el panel de voz esta activo
+              if (window.speechSynthesis && (window as any).__jarvisVoiceActive) {
+                const utter = new SpeechSynthesisUtterance(last.content);
+                utter.lang = 'es-ES';
+                utter.rate = 1.0;
+                const voices = window.speechSynthesis.getVoices();
+                const es = voices.find((v) => v.lang?.startsWith('es'));
+                if (es) utter.voice = es;
+                window.speechSynthesis.cancel();
+                window.speechSynthesis.speak(utter);
+              }
             }
-            return [...prev, { id: makeId(), role: 'assistant', content: data.content, isStreaming: true }];
-          });
-        }
+          }
 
-        if (data.type === 'done') {
-          setMessages((prev) => {
-            const last = prev[prev.length - 1];
-            if (last && last.isStreaming) return [...prev.slice(0, -1), { ...last, isStreaming: false }];
-            return prev;
-          });
-        }
-
-        if (data.type === 'error') {
-          setMessages((prev) => {
-            const last = prev[prev.length - 1];
+          if (data.type === 'error') {
+            const msgs = useJarvisStore.getState().chatMessages;
+            const last = msgs[msgs.length - 1];
             if (last && last.isStreaming) {
-              return [
-                ...prev.slice(0, -1),
-                { ...last, isStreaming: false, content: last.content + `\n[Error: ${data.content}]` },
-              ];
+              useJarvisStore.setState({
+                chatMessages: [...msgs.slice(0, -1), {
+                  ...last,
+                  isStreaming: false,
+                  content: last.content + `\n[Error: ${data.content}]`,
+                }]
+              });
             }
-            return prev;
-          });
+            store.setActivityState('error');
+          }
+        } catch (e) {
+          console.error('[WS] Parse error:', e);
         }
-      } catch { /* ignore malformed messages */ }
+      };
     };
-  }, [setActivityState, settings.autoConnect, settings.apiUrl]);
 
-  const sendMessage = useCallback((text?: string) => {
-    const msg = text || input;
-    if (!msg.trim()) return;
+    connect();
 
-    const userMessage: ChatMessage = { id: makeId(), role: 'user', content: msg };
-    setMessages((prev) => [...prev, userMessage]);
-    if (!text) setInput('');
+    // Fetch personas
+    fetch(`${settings.apiUrl}/api/v1/personas`)
+      .then((r) => r.json())
+      .then((data) => {
+        if (Array.isArray(data)) store.setAvailablePersonas(data);
+      })
+      .catch(() => {});
 
-    if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
-      setActivityState('thinking');
+    return () => {
+      globalWs?.close();
+      globalWs = null;
+      if (reconnectTimer) clearTimeout(reconnectTimer);
+    };
+  }, [settings.apiUrl]);
+
+  // Enviar mensaje
+  const sendMessage = useCallback((text: string) => {
+    const msg = text.trim();
+    if (!msg) return;
+
+    store.appendChatMessage({ id: makeId(), role: 'user', content: msg });
+    store.setLastUserText(msg);
+    store.setChatInput('');
+
+    if (!globalWs || globalWs.readyState !== WebSocket.OPEN) {
+      store.setActivityState('thinking');
       setTimeout(() => {
-        setMessages((prev) => [
-          ...prev,
-          {
-            id: makeId(),
-            role: 'assistant',
-            content: `[Backend offline] I received: "${msg}"\n\nPlease start the backend to get real AI responses.\n\nRun: .\INICIAR_BACKEND.bat`,
-            isStreaming: false,
-          },
-        ]);
-        setActivityState('idle');
+        store.appendChatMessage({
+          id: makeId(),
+          role: 'assistant',
+          content: `[Backend offline] I received: "${msg}"\n\nPlease start the backend to get real AI responses.\n\nRun: .\\INICIAR_BACKEND.bat`,
+          isStreaming: false,
+        });
+        store.setActivityState('idle');
       }, 1000);
       return;
     }
 
-    setActivityState('thinking');
-    wsRef.current.send(JSON.stringify({
+    store.setActivityState('thinking');
+    globalWs.send(JSON.stringify({
       message: msg,
-      session_id: sessionId.current,
-      persona: persona?.name || 'default',
+      session_id: store.chatSessionId,
+      persona: store.persona?.name || 'profesional',
     }));
-  }, [input, setActivityState, persona]);
+  }, [store]);
 
   const retryConnection = useCallback(() => {
-    setErrorRetry(0);
-    wsRef.current?.close();
-    connect();
-  }, [connect]);
+    globalWs?.close();
+  }, []);
 
-  useEffect(() => {
-    if (settings.autoConnect) connect();
-    return () => {
-      if (reconnectTimer.current) clearTimeout(reconnectTimer.current);
-      wsRef.current?.close();
-    };
-  }, [connect, settings.autoConnect]);
+  const clearChat = useCallback(() => {
+    store.clearChat();
+  }, [store]);
 
   return {
-    messages,
-    input,
-    setInput,
+    messages: store.chatMessages,
+    input: store.chatInput,
+    setInput: store.setChatInput,
     status,
     sendMessage,
     retryConnection,
+    clearChat,
     isConnected: status === 'connected',
     isConnecting: status === 'connecting',
     hasError: status === 'error',

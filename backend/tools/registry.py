@@ -1,10 +1,25 @@
-"""Central tool registry with optimized descriptions and categorization."""
-from backend.tools.notes import create_note, list_notes, get_note
-from backend.tools.todos import create_todo, list_todos, complete_todo
-from backend.tools.calendar import list_calendar_events, create_calendar_event
-from backend.tools.email import search_emails, send_email
+"""Central tool registry — all tools available to the agent."""
+
+# Notes CRUD (FULL)
+from backend.tools.notes import create_note, list_notes, get_note, update_note, delete_note
+
+# Todos CRUD (FULL)
+from backend.tools.todos import create_todo, list_todos, complete_todo, update_todo, delete_todo
+
+# Calendar
+from backend.tools.calendar import list_calendar_events, create_calendar_event, update_calendar_event, delete_calendar_event
+
+# Email
+from backend.tools.email import search_emails, send_email, list_emails
+
+# Wiki
 from backend.tools.wiki import wiki_query, wiki_save_research, wiki_ingest
-from backend.tools.utility import get_current_time
+
+# Utility
+from backend.tools.utility import get_current_time, get_current_date
+
+# Memory (now wired)
+from backend.tools.memory import search_memory, save_memory, list_memories, delete_memory
 
 # Web search — lazy import (playwright may be missing).
 try:
@@ -25,47 +40,42 @@ try:
     _SEMANTIC_AVAILABLE = True
 except Exception:
     _SEMANTIC_AVAILABLE = False
-    search_notes_semantic = None  # type: ignore
-    search_wiki_semantic = None   # type: ignore
-    search_all_knowledge = None   # type: ignore
-    get_knowledge_stats = None    # type: ignore
+    search_notes_semantic = None   # type: ignore
+    search_wiki_semantic = None    # type: ignore
+    search_all_knowledge = None    # type: ignore
+    get_knowledge_stats = None     # type: ignore
 
-_CORE_TOOLS = [
-    wiki_query,
-    wiki_save_research,
-    list_notes,
-    create_note,
-    list_todos,
-    create_todo,
-    complete_todo,
-    get_current_time,
+# ── Core tools (always available) ──────────────────────────────
+CORE_TOOLS = [
+    # Notes (full CRUD)
+    create_note, list_notes, get_note, update_note, delete_note,
+    # Todos (full CRUD)
+    create_todo, list_todos, complete_todo, update_todo, delete_todo,
+    # Wiki
+    wiki_query, wiki_save_research, wiki_ingest,
+    # Time
+    get_current_time, get_current_date,
 ]
 
+# Web search (if playwright installed)
 if _WEB_SEARCH_AVAILABLE and web_search is not None:
-    _CORE_TOOLS.append(web_search)
+    CORE_TOOLS.append(web_search)
 
+# Semantic search (if chromadb installed)
 if _SEMANTIC_AVAILABLE:
-    _CORE_TOOLS += [
+    CORE_TOOLS += [
         search_notes_semantic,
         search_wiki_semantic,
         search_all_knowledge,
         get_knowledge_stats,
     ]
 
-CORE_TOOLS = _CORE_TOOLS
-
-# Herramientas especializadas (solo si es necesario)
-_EXTENDED_TOOLS = [
-    list_calendar_events,
-    create_calendar_event,
-    search_emails,
-    send_email,
-    wiki_ingest,
+# ── Extended tools (require OAuth/config) ───────────────────────
+EXTENDED_TOOLS = [
+    list_calendar_events, create_calendar_event, update_calendar_event, delete_calendar_event,
+    search_emails, send_email, list_emails,
+    search_memory, save_memory, list_memories, delete_memory,
 ]
 
-if _WEB_SEARCH_AVAILABLE and web_search is not None:
-    _EXTENDED_TOOLS.append(web_search)
-
-EXTENDED_TOOLS = _EXTENDED_TOOLS
-
+# ── All tools combined ──────────────────────────────────────────
 ALL_TOOLS = CORE_TOOLS + EXTENDED_TOOLS

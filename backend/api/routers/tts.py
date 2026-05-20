@@ -6,10 +6,10 @@ Uso:
   POST /api/v1/tts
   {
     "text": "Hola, soy Jarvis",
-    "voice_id": "es_ES-claribel_evans-medium",
+    "voice_id": "es_ES-davefx-medium",
     "format": "wav",
-    "emotion": "neutral",      // neutral, happy, excited, calm, sad
-    "speed": 1.0,              // 0.5 - 2.0
+    "emotion": "neutral",
+    "speed": 1.0,
   }
   
   Response: audio/wav
@@ -29,7 +29,7 @@ router = APIRouter(prefix="/tts", tags=["tts"])
 
 class TTSRequest(BaseModel):
     text: str = Field(..., min_length=1, max_length=5000, description="Texto a sintetizar")
-    voice_id: str = Field(default="es_ES-claribel_evans-medium", description="ID de la voz")
+    voice_id: str = Field(default="es_ES-davefx-medium", description="ID de la voz")
     format: str = Field(default="wav", description="Formato de audio: wav, mp3, ogg")
     emotion: str = Field(default="neutral", description="Emoción: neutral, happy, excited, calm, sad")
     speed: float = Field(default=1.0, ge=0.5, le=2.0, description="Velocidad: 0.5-2.0")
@@ -45,26 +45,15 @@ class TTSVoiceList(BaseModel):
 
 @router.post("/synthesize")
 async def tts_synthesize(request: TTSRequest):
-    """
-    Sintetiza texto a audio.
-    
-    Devuelve un archivo de audio WAV con la voz seleccionada.
-    """
+    """Sintetiza texto a audio."""
     if not request.text.strip():
         raise HTTPException(status_code=400, detail="Texto vacío")
     
     try:
-        # Inicializar servicio con la voz correcta
         tts = TextToSpeechService(voice_id=request.voice_id)
-        
-        # Mapear emoción a parámetros
         emotion_config = _map_emotion(request.emotion)
+        length_scale = max(0.5, min(2.0, 2.0 - request.speed))
         
-        # Ajustar velocidad (invertido: length_scale más bajo = más rápido)
-        length_scale = 2.0 - request.speed  # speed=1.0 → length_scale=1.0, speed=1.5 → 0.5
-        length_scale = max(0.5, min(2.0, length_scale))
-        
-        # Sintetizar
         if request.long_form:
             audio = tts.synthesize_long_text(
                 request.text,
@@ -78,13 +67,11 @@ async def tts_synthesize(request: TTSRequest):
                 noise_scale=emotion_config["noise_scale"],
             )
         
-        # Convertir formato si es necesario
         if request.format == "mp3":
             audio = _convert_to_mp3(audio)
         elif request.format == "ogg":
             audio = _convert_to_ogg(audio)
         
-        # Headers para el navegador/móvil
         content_type = {
             "wav": "audio/wav",
             "mp3": "audio/mpeg",
@@ -109,36 +96,28 @@ async def tts_synthesize(request: TTSRequest):
 
 @router.post("/synthesize/stream")
 async def tts_synthesize_stream(request: TTSRequest):
-    """
-    Sintetiza en streaming — el móvil empieza a reproducir antes
-    de que termine la generación completa.
-    
-    Ideal para textos largos donde el usuario no quiere esperar.
-    """
+    """Sintetiza en streaming — el móvil empieza a reproducir antes
+    de que termine la generación completa."""
     if not request.text.strip():
         raise HTTPException(status_code=400, detail="Texto vacío")
     
     tts = TextToSpeechService(voice_id=request.voice_id)
+    tts._init_voice()  # FIX: initialize voice before streaming
     
     async def audio_generator():
         import wave
-        
-        # WAV header
         wav_buffer = io.BytesIO()
         wav_file = wave.open(wav_buffer, "wb")
         wav_file.setframerate(tts.sample_rate)
         wav_file.setnchannels(1)
         wav_file.setsampwidth(2)
-        
-        # Write header bytes
         wav_buffer.seek(0)
         header = wav_buffer.read()
         yield header
         
-        # Stream audio
-        for chunk in tts._voice.synthesize_stream_raw(request.text):
-            yield chunk
-        
+        if tts._voice:
+            for chunk in tts._voice.synthesize_stream_raw(request.text):
+                yield chunk
         wav_file.close()
     
     return StreamingResponse(
@@ -166,46 +145,34 @@ async def tts_list_voices():
     
     return TTSVoiceList(
         voices=voices,
-        default_voice="es_ES-claribel_evans-medium",
+        default_voice="es_ES-davefx-medium",
     )
 
 
 @router.post("/voice/upload")
 async def tts_upload_voice(request: Request):
-    """
-    Sube una muestra de voz para cloning.
-    
-    El audio debe ser .wav, ~10-30 segundos, claro, sin ruido.
-    """
+    """Sube una muestra de voz para cloning."""
     import shutil
-    
-    # Guardar el archivo subido
     body = await request.body()
-    
     if len(body) < 1000:
         raise HTTPException(status_code=400, detail="Archivo de audio demasiado pequeño")
     
     from backend.services.tts_service import VOICES_DIR
-    
     sample_path = VOICES_DIR / "user_voice_sample.wav"
     sample_path.write_bytes(body)
     
-    # Establecer como referencia
     tts = get_tts_service()
     tts.set_voice_reference(sample_path)
     
     return {
         "status": "ok",
-        "message": "Muestra de voz subida correctamente. Se usará como referencia.",
+        "message": "Muestra de voz subida correctamente.",
         "sample_path": str(sample_path),
         "sample_size": len(body),
     }
 
 
-# ── Helpers ──────────────────────────────────────────────────────
-
 def _map_emotion(emotion: str) -> dict:
-    """Mapea nombre de emoción a parámetros de síntesis."""
     emotion_map = {
         "neutral": {"noise_scale": 0.667, "length_scale": 1.0},
         "happy": {"noise_scale": 0.6, "length_scale": 0.95},
@@ -217,7 +184,6 @@ def _map_emotion(emotion: str) -> dict:
 
 
 def _convert_to_mp3(wav_bytes: bytes) -> bytes:
-    """Convierte WAV a MP3 usando pydub (si está disponible)."""
     try:
         from pydub import AudioSegment
         audio = AudioSegment.from_wav(io.BytesIO(wav_bytes))
@@ -225,12 +191,10 @@ def _convert_to_mp3(wav_bytes: bytes) -> bytes:
         audio.export(out, format="mp3", bitrate="128k")
         return out.getvalue()
     except ImportError:
-        # Fallback: devolver WAV
         return wav_bytes
 
 
 def _convert_to_ogg(wav_bytes: bytes) -> bytes:
-    """Convierte WAV a OGG usando pydub."""
     try:
         from pydub import AudioSegment
         audio = AudioSegment.from_wav(io.BytesIO(wav_bytes))

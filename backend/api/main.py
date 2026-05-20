@@ -1,4 +1,4 @@
-"""FastAPI application — Jarvis backend (v2 with production improvements)."""
+"""FastAPI application -- Jarvis backend (v2 with production improvements)."""
 import os
 from pathlib import Path
 from contextlib import asynccontextmanager
@@ -23,10 +23,10 @@ from backend.core.exceptions import (
     app_error_handler,
 )
 from backend.core.rate_limiter import limiter
-from backend.api.routers import chat, notes, todos, calendar, email, threads, messages, agent, diagnostics, search, tts, personas, backup, stt, auth, llm
+from backend.api.routers import chat, notes, todos, calendar, email, threads, messages, agent, diagnostics, search, tts, personas, backup, stt, auth, llm, voice
 
 
-# ── Initialize Structured Logging ────────────────────────────
+# -- Initialize Structured Logging -------------------------------
 setup_logging()
 
 
@@ -59,7 +59,7 @@ async def lifespan(app: FastAPI):
     logger.info("Jarvis API shutting down")
 
 
-# ── Application Factory ──────────────────────────────────────
+# -- Application Factory --------------------------------------
 
 app = FastAPI(
     title="Jarvis API",
@@ -70,15 +70,26 @@ app = FastAPI(
     redoc_url="/api/v1/redoc",
 )
 
-# ── Middleware Stack (order matters: last added = first executed) ──
+# -- Middleware Stack (order matters: last added = first executed) ---
 
 # 1. Response compression (GZip for responses > 1KB)
 app.add_middleware(GZipMiddleware, minimum_size=1000)
 
-# 2. CORS
+# 2. CORS (agregamos 3001 para el frontend)
+_CORS_ORIGINS = [
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+    "http://localhost:3001",
+    "http://127.0.0.1:3001",
+    "http://localhost:4173",
+    "http://127.0.0.1:4173",
+]
+if settings.cors_origins != ["*"]:
+    _CORS_ORIGINS = list(dict.fromkeys(_CORS_ORIGINS + settings.cors_origins))
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.cors_origins if settings.cors_origins != ["*"] else ["http://localhost:3000", "http://127.0.0.1:3000"],
+    allow_origins=_CORS_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -90,7 +101,7 @@ app.add_middleware(RequestIDMiddleware)
 # 4. Request/Response logging
 app.add_middleware(RequestResponseLoggingMiddleware)
 
-# ── Exception Handlers ───────────────────────────────────────
+# -- Exception Handlers ---------------------------------------
 app.add_exception_handler(RequestValidationError, validation_exception_handler)
 app.add_exception_handler(Exception, generic_exception_handler)
 
@@ -99,7 +110,7 @@ from fastapi import HTTPException
 app.add_exception_handler(HTTPException, http_exception_handler)
 app.add_exception_handler(AppError, app_error_handler)
 
-# ── Rate Limiter State ───────────────────────────────────────
+# -- Rate Limiter State ----------------------------------------
 app.state.limiter = limiter
 
 # Rate limit exceeded handler
@@ -122,7 +133,7 @@ async def rate_limit_exceeded_handler(request: Request, exc: Exception):
     raise exc
 
 
-# ── Health Checks ────────────────────────────────────────────
+# -- Health Checks ---------------------------------------------
 
 @app.get("/api/v1/health")
 async def health():
@@ -132,7 +143,7 @@ async def health():
 
 @app.get("/api/v1/health/ready")
 async def readiness_check():
-    """Readiness check — is the app ready to serve requests?"""
+    """Readiness check -- is the app ready to serve requests?"""
     checks = {}
 
     # Check database
@@ -168,11 +179,11 @@ async def readiness_check():
 
 @app.get("/api/v1/health/live")
 async def liveness_check():
-    """Liveness check — is the process alive?"""
+    """Liveness check -- is the process alive?"""
     return {"status": "alive"}
 
 
-# ── API v1 Routes ────────────────────────────────────────────
+# -- API v1 Routes -------------------------------------------
 
 app.include_router(chat.router, prefix="/api/v1", tags=["chat"])
 app.include_router(agent.router, prefix="/api/v1", tags=["agent"])
@@ -190,9 +201,10 @@ app.include_router(personas.router, prefix="/api/v1", tags=["personas"])
 app.include_router(backup.router, prefix="/api/v1", tags=["backup"])
 app.include_router(stt.router, prefix="/api/v1", tags=["stt"])
 app.include_router(auth.router, prefix="/api/v1", tags=["auth"])
+app.include_router(voice.router, prefix="/api/v1/voice", tags=["voice"])
 
 
-# ── Legacy Routes (backward compatibility) ───────────────────
+# -- Legacy Routes (backward compatibility) --------------------
 
 app.include_router(chat.router, tags=["chat (legacy)"])
 app.include_router(agent.router, tags=["agent (legacy)"])
@@ -213,7 +225,7 @@ async def health_legacy():
 from fastapi.responses import RedirectResponse, FileResponse
 from backend.api.dependencies import get_jarvis_graph
 
-# ── Static Files (Web App + Neural Brain) ─────────────────
+# -- Static Files (Web App + Neural Brain) -------------------
 _web_dist = Path(__file__).parent.parent.parent / "web-next" / ".next" / "static"
 if _web_dist.exists():
     app.mount("/static", StaticFiles(directory=str(_web_dist)), name="static")
@@ -231,5 +243,5 @@ async def brain_page():
 
 @app.get("/")
 async def root_page():
-    """API root — frontend runs on port 3000."""
+    """API root -- frontend runs on port 3000."""
     return {"status": "ok", "service": "jarvis", "note": "Next.js frontend runs on port 3000"}

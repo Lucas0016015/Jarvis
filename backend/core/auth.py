@@ -155,3 +155,23 @@ def create_tokens_for_user(user_id: str) -> Token:
         access_token=create_access_token(user_id),
         refresh_token=create_refresh_token(user_id),
     )
+
+
+def get_current_user_from_refresh(credentials: HTTPAuthorizationCredentials = Depends(security)) -> dict:
+    """Validate a REFRESH token specifically for /auth/refresh."""
+    token = credentials.credentials
+    payload = decode_token(token)
+    if payload.get("type") != "refresh":
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid token type: expected refresh token",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    user_id = payload.get("sub")
+    if user_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Could not validate credentials",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    return payload

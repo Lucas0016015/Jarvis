@@ -1,345 +1,297 @@
-////////////////////////////////////////////////////////////////////////////////
-// NeuralBrainScene — Pure Three.js brain (no HTML overlays inside Canvas)
-////////////////////////////////////////////////////////////////////////////////
+'use client'
 
-import { useRef, useMemo } from 'react'
+import { useRef, useMemo, Suspense } from 'react'
 import { Canvas, useFrame } from '@react-three/fiber'
+import { useGLTF, Float } from '@react-three/drei'
 import { EffectComposer, Bloom } from '@react-three/postprocessing'
 import * as THREE from 'three'
 
 export type BrainState = 'idle' | 'thinking' | 'speaking' | 'listening' | 'error'
 
-function brainTransform(x: number, yOrig: number, z: number) {
-  let y = yOrig
-  x *= 1.15; z *= 1.05; y *= 0.82
-  const sep = 0.22 * Math.max(0, y + 0.3) * Math.max(0, 1.1 - Math.abs(z) * 0.3)
-  x += x > 0 ? sep : -sep
-  if (y < -0.35) {
-    const t = Math.abs(y + 0.35)
-    y -= t * 1.8
-    x *= Math.max(0.35, 1.0 - t * 1.2)
-    z *= Math.max(0.35, 1.0 - t * 0.9)
-  }
-  const uw = Math.max(0, y + 0.2) * 0.18
-  x *= 1 + uw; z *= 1 + uw * 0.4
-  if (y < -0.1 && z > 0.5) {
-    const cb = Math.exp(-((y + 0.3) ** 2 + (z - 0.7) ** 2) * 8)
-    z += cb * 0.35; y -= cb * 0.15
-  }
-  const gyroid = (
-    Math.sin(x * 3.8) * Math.cos(y * 3.8) +
-    Math.sin(y * 3.8) * Math.cos(z * 3.8) +
-    Math.sin(z * 3.8) * Math.cos(x * 3.8)
-  )
-  const r = Math.sqrt(x * x + y * y + z * z)
-  if (r > 0.25) {
-    const foldAmp = 0.08 + 0.06 * Math.sin(y * 7)
-    const mod = 1.0 + gyroid * foldAmp / Math.max(r, 0.4)
-    x *= mod; y *= mod; z *= mod
-  }
-  const finalR = Math.sqrt(x * x + y * y + z * z)
-  return { x, y, z, inside: finalR <= 1.05 + 0.05 * Math.sin(y * 4) && finalR >= 0.35 }
+/* ── Palette per state ──────────────────────────────────────────────── */
+const PALETTE: Record<BrainState, THREE.ColorRepresentation> = {
+  idle:      '#4488ff',
+  thinking:  '#aa44ff',
+  speaking:  '#00d4ff',
+  listening: '#00ff88',
+  error:     '#ff4444',
+}
+const PALETTE_B: Record<BrainState, THREE.ColorRepresentation> = {
+  idle:      '#8833cc',
+  thinking:  '#ff44aa',
+  speaking:  '#44ffcc',
+  listening: '#00cc66',
+  error:     '#cc2222',
 }
 
-const SURFACE_COUNT = 4000
-const ORBIT_COUNT  = 800
-const ORBIT_LAYERS = 5
+/* ── Holographic Fresnel + displacement vertex shader ───────────────── */
+const HOLO_VS = /* glsl */`
+  uniform float uTime;
+  uniform float uWave;
+  varying vec3  vNorm;
+  varying vec3  vView;
+  varying float vDisp;
 
-function generateBrainSurface() {
-  const pos: number[] = [], base: number[] = [], sz: number[] = [], ph: number[] = [], sp: number[] = []
-  let attempts = 0
-  while (pos.length / 3 < SURFACE_COUNT && attempts < SURFACE_COUNT * 50) {
-    attempts++
-    const theta = Math.random() * Math.PI * 2
-    const phi = Math.acos(2 * Math.random() - 1)
-    const r = 0.85 + Math.random() * 0.32
-    const bx = r * Math.sin(phi) * Math.cos(theta)
-    const by = r * Math.cos(phi)
-    const bz = r * Math.sin(phi) * Math.sin(theta)
-    const t = brainTransform(bx, by, bz)
-    if (!t.inside) continue
-    pos.push(t.x + (Math.random() - 0.5) * 0.03)
-    pos.push(t.y + (Math.random() - 0.5) * 0.03)
-    pos.push(t.z + (Math.random() - 0.5) * 0.03)
-    base.push(t.x, t.y, t.z)
-    sz.push(1.8 + Math.random() * 7.0)
-    ph.push(Math.random() * Math.PI * 2)
-    sp.push(0.4 + Math.random() * 1.4)
-  }
-  return {
-    positions: new Float32Array(pos),
-    basePositions: new Float32Array(base),
-    sizes: new Float32Array(sz),
-    phases: new Float32Array(ph),
-    speeds: new Float32Array(sp),
-  }
-}
-
-function generateLinks(surface: Float32Array) {
-  const MAX = 0.28, links: number[] = [], pr: number[] = []
-  const count = surface.length / 3
-  for (let a = 0; a < Math.min(count, 900); a++) {
-    for (let b = a + 1; b < Math.min(count, 900); b++) {
-      const dx = surface[a * 3] - surface[b * 3]
-      const dy = surface[a * 3 + 1] - surface[b * 3 + 1]
-      const dz = surface[a * 3 + 2] - surface[b * 3 + 2]
-      const d2 = dx * dx + dy * dy + dz * dz
-      if (d2 < MAX * MAX && Math.random() > 0.55) {
-        links.push(surface[a*3], surface[a*3+1], surface[a*3+2], surface[b*3], surface[b*3+1], surface[b*3+2])
-        pr.push(Math.random())
-      }
-    }
-  }
-  return { positions: new Float32Array(links), progresses: new Float32Array(pr) }
-}
-
-function generateOrbitNeurons() {
-  const pos = new Float32Array(ORBIT_COUNT * 3), sz = new Float32Array(ORBIT_COUNT), ph = new Float32Array(ORBIT_COUNT)
-  for (let i = 0; i < ORBIT_COUNT; i++) {
-    const layer = Math.floor(Math.random() * ORBIT_LAYERS)
-    const angle = (i % 250) * (Math.PI * 2 / 250) + (Math.random() - 0.5) * 0.3
-    const rx = 2.0 + layer * 0.85 + (Math.random() - 0.5) * 0.4
-    const rz = 1.6 + layer * 0.65 + (Math.random() - 0.5) * 0.35
-    const y = (layer - ORBIT_LAYERS / 2) * 0.45 + (Math.random() - 0.5) * 0.5
-    pos[i * 3] = Math.cos(angle) * rx
-    pos[i * 3 + 1] = y
-    pos[i * 3 + 2] = Math.sin(angle) * rz
-    sz[i] = 1.5 + Math.random() * 5.5
-    ph[i] = Math.random() * Math.PI * 2
-  }
-  return { positions: pos, sizes: sz, phases: ph }
-}
-
-const SURFACE_VS = `
-  attribute float aSize, aPhase, aSpeed; attribute vec3 aBase;
-  uniform float uTime, uState, uPixelRatio;
-  varying float vAlpha; varying vec3 vColor;
   void main() {
-    vec3 pos = aBase;
-    float sp = 1.0 + uState * 3.0;
-    float nx = sin(aBase.y * 4.0 + uTime * 0.5 * aSpeed * sp + aPhase) * 0.06;
-    float ny = cos(aBase.x * 3.5 + uTime * 0.4 * aSpeed * sp + aPhase * 1.3) * 0.05;
-    float nz = sin(aBase.z * 3.0 + uTime * 0.6 * aSpeed * sp + aPhase * 0.7) * 0.04;
-    pos += vec3(nx, ny, nz);
-    vec4 mv = modelViewMatrix * vec4(pos, 1.0);
-    gl_PointSize = aSize * uPixelRatio * (200.0 / -mv.z);
-    gl_Position = projectionMatrix * mv;
-    float pulse = 0.5 + sin(uTime * 3.0 + aPhase * 4.0) * 0.5;
-    vAlpha = 0.25 + pulse * 0.5;
-    // idle: blue-violet, thinking: violet-magenta, speaking: cian-turquoise
-    vec3 idle    = mix(vec3(0.27,0.53,1.0), vec3(0.53,0.27,1.0), uState * 0.5);
-    vec3 think   = mix(vec3(0.67,0.27,1.0), vec3(1.0,0.27,0.67), uState - 1.0);
-    vec3 speak   = mix(vec3(0.0,0.83,1.0), vec3(0.27,1.0,0.80), max(0.0, uState - 1.0));
-    vColor = uState < 1.0 ? idle : uState < 2.0 ? think : speak;
-  }`
+    vec3 p = position;
+    float d = sin(p.x * 5.0 + uTime * 1.3)
+            * cos(p.y * 4.5 + uTime * 1.0)
+            * sin(p.z * 5.2 + uTime * 1.1);
+    p += normal * d * uWave;
+    vDisp = d;
 
-const SURFACE_FS = `
-  varying float vAlpha; varying vec3 vColor;
-  void main() {
-    float d = length(gl_PointCoord - 0.5);
-    if (d > 0.5) discard;
-    float core = smoothstep(0.5, 0.0, d);
-    float glow = pow(1.0 - d * 2.0, 3.5);
-    float alpha = glow * vAlpha + core * 0.9;
-    vec3 col = vColor * (glow * 0.7 + core * 2.5);
-    col += core * vColor * 0.6;
-    gl_FragColor = vec4(col, alpha);
-  }`
-
-const LINK_VS = `
-  uniform float uTime, uState; attribute float aProgress;
-  varying float vAlpha;
-  void main() {
-    vec3 pos = position;
-    float sp = 1.0 + uState * 2.0;
-    pos += sin(uTime * 0.7 * sp + aProgress * 12.0) * 0.04;
-    gl_Position = projectionMatrix * modelViewMatrix * vec4(pos, 1.0);
-    vAlpha = 0.06 + sin(uTime * 1.5 + aProgress * 6.28) * 0.05;
-  }`
-
-const LINK_FS = `
-  uniform vec3 uColor; varying float vAlpha;
-  void main() { gl_FragColor = vec4(uColor, vAlpha); }
+    vec4 world = modelMatrix * vec4(p, 1.0);
+    vNorm = normalize(normalMatrix * normal);
+    vView = normalize(cameraPosition - world.xyz);
+    gl_Position = projectionMatrix * viewMatrix * world;
+  }
 `
 
-const ORBIT_VS = `
-  attribute float aSize, aPhase;
-  uniform float uTime, uState, uPixelRatio;
-  varying float vAlpha; varying vec3 vColor;
-  void main() {
-    vec3 pos = position;
-    float sp = 1.0 + uState * 2.5;
-    float w = sin(uTime * 0.3 * sp + aPhase) * 0.12;
-    pos += normalize(pos + 0.001) * w;
-    vec4 mv = modelViewMatrix * vec4(pos, 1.0);
-    gl_PointSize = aSize * uPixelRatio * (160.0 / -mv.z);
-    gl_Position = projectionMatrix * mv;
-    float pulse = 0.4 + sin(uTime * 2.0 + aPhase * 3.0) * 0.35;
-    vAlpha = 0.2 + pulse * 0.35;
-    vec3 idle  = mix(vec3(0.27,0.53,1.0), vec3(0.53,0.27,1.0), uState * 0.5);
-    vec3 think = mix(vec3(0.67,0.27,1.0), vec3(1.0,0.27,0.67), uState - 1.0);
-    vec3 speak = mix(vec3(0.0,0.83,1.0), vec3(0.27,1.0,0.80), max(0.0, uState - 1.0));
-    vColor = uState < 1.0 ? idle : uState < 2.0 ? think : speak;
-  }`
+const HOLO_FS = /* glsl */`
+  uniform float uTime;
+  uniform vec3  uColA;
+  uniform vec3  uColB;
+  uniform float uOpacity;
+  varying vec3  vNorm;
+  varying vec3  vView;
+  varying float vDisp;
 
-const ORBIT_FS = `
-  varying float vAlpha; varying vec3 vColor;
+  void main() {
+    float fr = pow(1.0 - clamp(dot(vNorm, vView), 0.0, 1.0), 3.0);
+    vec3 wp = (modelMatrix * vec4(position, 1.0)).xyz;
+    float scan = pow(abs(sin(wp.y * 30.0 + uTime * 1.8)), 8.0) * 0.35;
+    float vein = smoothstep(0.7, 1.0, abs(vDisp)) * 0.5;
+    vec3 col = mix(uColA, uColB, abs(vNorm.y));
+    float a   = fr * uOpacity + scan + vein;
+    gl_FragColor = vec4(col + vein * uColA, clamp(a, 0.0, 1.0));
+  }
+`
+
+/* ── Particle orbit shader ──────────────────────────────────────────── */
+const PART_VS = /* glsl */`
+  attribute float aSz;
+  attribute float aPh;
+  uniform float uTime;
+  uniform float uDPR;
+  uniform vec3  uColA;
+  varying float vA;
+  varying vec3  vC;
+
+  void main() {
+    vec3 p = position;
+    float ang = atan(p.z, p.x) + uTime * 0.07 * sign(aPh - 3.14);
+    float r   = length(p.xz);
+    p.x = cos(ang) * r;
+    p.z = sin(ang) * r;
+    p.y += sin(uTime * 0.6 + aPh) * 0.07;
+
+    vec4 mv = modelViewMatrix * vec4(p, 1.0);
+    gl_PointSize = aSz * uDPR * (160.0 / -mv.z);
+    gl_Position  = projectionMatrix * mv;
+
+    vA = (0.3 + sin(uTime * 1.6 + aPh * 2.5) * 0.4) * 0.9;
+    vC = uColA;
+  }
+`
+
+const PART_FS = /* glsl */`
+  varying float vA;
+  varying vec3  vC;
   void main() {
     float d = length(gl_PointCoord - 0.5);
     if (d > 0.5) discard;
-    float core = smoothstep(0.5, 0.0, d);
-    float glow = pow(1.0 - d * 2.0, 3.0);
-    gl_FragColor = vec4(vColor * (glow + core * 3.0), glow * vAlpha + core * 0.8);
-  }`
+    float a = pow(1.0 - d * 2.0, 2.5) * vA;
+    gl_FragColor = vec4(vC * 1.8, a);
+  }
+`
 
-function HoloShell() {
-  const meshRef = useRef<THREE.Mesh>(null)
-  useFrame(({ clock }) => {
-    if (meshRef.current) {
-      meshRef.current.rotation.y = clock.getElapsedTime() * 0.08
-      meshRef.current.rotation.x = Math.sin(clock.getElapsedTime() * 0.05) * 0.1
-    }
-  })
-  return (
-    <mesh ref={meshRef}>
-      <icosahedronGeometry args={[1.15, 1]} />
-      <meshBasicMaterial
-        color={new THREE.Color(0.27, 0.53, 1.0)}
-        wireframe
-        transparent
-        opacity={0.12}
-        blending={THREE.AdditiveBlending}
-        depthWrite={false}
-      />
-    </mesh>
-  )
+/* ── Orbital particles geometry ─────────────────────────────────────── */
+function makeParticles(n = 500) {
+  const pos = new Float32Array(n * 3)
+  const sz  = new Float32Array(n)
+  const ph  = new Float32Array(n)
+  for (let i = 0; i < n; i++) {
+    const t = Math.random() * Math.PI * 2
+    const f = Math.acos(2 * Math.random() - 1)
+    const r = 1.4 + Math.random() * 0.7
+    pos[i*3]   = r * Math.sin(f) * Math.cos(t)
+    pos[i*3+1] = r * Math.cos(f)
+    pos[i*3+2] = r * Math.sin(f) * Math.sin(t)
+    sz[i]  = 1.5 + Math.random() * 4.5
+    ph[i]  = Math.random() * Math.PI * 2
+  }
+  return { pos, sz, ph }
 }
 
-function BrainParticles({ state }: { state: BrainState }) {
-  const matRef = useRef<THREE.ShaderMaterial>(null)
-  const { positions, basePositions, sizes, phases, speeds } = useMemo(generateBrainSurface, [])
-  const uniforms = useMemo(() => ({ uTime: { value: 0 }, uState: { value: 0 }, uPixelRatio: { value: Math.min(window.devicePixelRatio, 2) } }), [])
-  useFrame(({ clock }) => {
-    if (!matRef.current) return
-    matRef.current.uniforms.uTime.value = clock.getElapsedTime()
-    matRef.current.uniforms.uState.value = state === 'thinking' ? 1 : state === 'speaking' ? 2 : 0
-  })
-  return (
-    <points>
-      <bufferGeometry>
-        <bufferAttribute attach="attributes-position" count={SURFACE_COUNT} array={positions} itemSize={3} />
-        <bufferAttribute attach="attributes-aBase" count={SURFACE_COUNT} array={basePositions} itemSize={3} />
-        <bufferAttribute attach="attributes-aSize" count={SURFACE_COUNT} array={sizes} itemSize={1} />
-        <bufferAttribute attach="attributes-aPhase" count={SURFACE_COUNT} array={phases} itemSize={1} />
-        <bufferAttribute attach="attributes-aSpeed" count={SURFACE_COUNT} array={speeds} itemSize={1} />
-      </bufferGeometry>
-      <shaderMaterial ref={matRef} vertexShader={SURFACE_VS} fragmentShader={SURFACE_FS} uniforms={uniforms} transparent depthWrite={false} blending={THREE.AdditiveBlending} />
-    </points>
-  )
-}
+/* ── Brain mesh component ───────────────────────────────────────────── */
+function BrainModel({ state }: { state: BrainState }) {
+  const matRef  = useRef<THREE.ShaderMaterial>(null)
+  const wireRef = useRef<THREE.MeshBasicMaterial>(null)
+  const { scene } = useGLTF('/models/brain.glb')
 
-function BrainLinks({ state }: { state: BrainState }) {
-  const surfaceData = useMemo(generateBrainSurface, [])
-  const links = useMemo(() => generateLinks(surfaceData.positions), [surfaceData])
-  const matRef = useRef<THREE.ShaderMaterial>(null)
-  const uniforms = useMemo(() => ({ uTime: { value: 0 }, uState: { value: 0 }, uColor: { value: new THREE.Color(0.27, 0.53, 1.0) } }), [])
+  const geo = useMemo(() => {
+    let g: THREE.BufferGeometry | null = null
+    scene.traverse((c) => { if ((c as THREE.Mesh).isMesh && !g) g = (c as THREE.Mesh).geometry.clone() })
+    return g
+  }, [scene])
+
+  const uniforms = useMemo(() => ({
+    uTime:    { value: 0 },
+    uWave:    { value: 0.012 },
+    uColA:    { value: new THREE.Color(PALETTE.idle) },
+    uColB:    { value: new THREE.Color(PALETTE_B.idle) },
+    uOpacity: { value: 0.55 },
+  }), [])
+
   useFrame(({ clock }) => {
-    if (!matRef.current) return
+    if (!matRef.current || !wireRef.current) return
     const t = clock.getElapsedTime()
-    const uState = state === 'thinking' ? 1 : state === 'speaking' ? 2 : 0
     matRef.current.uniforms.uTime.value = t
-    matRef.current.uniforms.uState.value = uState
-    const cIdle = new THREE.Color(0.27, 0.53, 1.0), cThink = new THREE.Color(0.67, 0.27, 1.0), cSpeak = new THREE.Color(0.0, 0.83, 1.0)
-    const target = uState < 1 ? cIdle : uState < 2 ? cThink : cSpeak
-    matRef.current.uniforms.uColor.value.lerp(target, 0.04)
-  })
-  return (
-    <lineSegments>
-      <bufferGeometry>
-        <bufferAttribute attach="attributes-position" count={links.positions.length / 3} array={links.positions} itemSize={3} />
-        <bufferAttribute attach="attributes-aProgress" count={links.progresses.length} array={links.progresses} itemSize={1} />
-      </bufferGeometry>
-      <shaderMaterial ref={matRef} vertexShader={LINK_VS} fragmentShader={LINK_FS} uniforms={uniforms} transparent depthWrite={false} blending={THREE.AdditiveBlending} />
-    </lineSegments>
-  )
-}
+    const waveTarget = state === 'speaking' ? 0.022 : state === 'thinking' ? 0.018 : 0.012
+    const waveCur = matRef.current.uniforms.uWave.value
+    matRef.current.uniforms.uWave.value = waveCur + (waveTarget - waveCur) * 0.05
 
-function OrbitNeurons({ state }: { state: BrainState }) {
-  const matRef = useRef<THREE.ShaderMaterial>(null)
-  const { positions, sizes, phases } = useMemo(generateOrbitNeurons, [])
-  const uniforms = useMemo(() => ({ uTime: { value: 0 }, uState: { value: 0 }, uPixelRatio: { value: Math.min(window.devicePixelRatio, 2) } }), [])
-  useFrame(({ clock }) => {
-    if (!matRef.current) return
-    matRef.current.uniforms.uTime.value = clock.getElapsedTime()
-    matRef.current.uniforms.uState.value = state === 'thinking' ? 1 : state === 'speaking' ? 2 : 0
+    const cA = matRef.current.uniforms.uColA.value
+    const cB = matRef.current.uniforms.uColB.value
+    cA.lerp(new THREE.Color(PALETTE[state]),  0.04)
+    cB.lerp(new THREE.Color(PALETTE_B[state]), 0.04)
+    wireRef.current.color.lerp(new THREE.Color(PALETTE[state]), 0.04)
   })
-  return (
-    <points>
-      <bufferGeometry>
-        <bufferAttribute attach="attributes-position" count={ORBIT_COUNT} array={positions} itemSize={3} />
-        <bufferAttribute attach="attributes-aSize" count={ORBIT_COUNT} array={sizes} itemSize={1} />
-        <bufferAttribute attach="attributes-aPhase" count={ORBIT_COUNT} array={phases} itemSize={1} />
-      </bufferGeometry>
-      <shaderMaterial ref={matRef} vertexShader={ORBIT_VS} fragmentShader={ORBIT_FS} uniforms={uniforms} transparent depthWrite={false} blending={THREE.AdditiveBlending} />
-    </points>
-  )
-}
 
-function CoreGlow({ state }: { state: BrainState }) {
-  const meshRef = useRef<THREE.Mesh>(null)
-  const color = useMemo(() => new THREE.Color(0.27, 0.53, 1.0), [])
-  useFrame(({ clock }) => {
-    if (!meshRef.current) return
-    const t = clock.getElapsedTime()
-    meshRef.current.scale.setScalar(1 + Math.sin(t * 0.6) * 0.03)
-    const uState = state === 'thinking' ? 1 : state === 'speaking' ? 2 : 0
-    const cIdle = new THREE.Color(0.27, 0.53, 1.0), cThink = new THREE.Color(0.67, 0.27, 1.0), cSpeak = new THREE.Color(0.0, 0.83, 1.0)
-    const target = uState < 1 ? cIdle : uState < 2 ? cThink : cSpeak
-    ;(meshRef.current.material as THREE.MeshBasicMaterial).color.lerp(target, 0.04)
-  })
-  return (
-    <mesh ref={meshRef}>
-      <icosahedronGeometry args={[0.75, 2]} />
-      <meshBasicMaterial color={color} transparent opacity={0.06} depthWrite={false} />
-    </mesh>
-  )
-}
+  if (!geo) return null
 
-function Scene({ state }: { state: BrainState }) {
-  const groupRef = useRef<THREE.Group>(null)
-  useFrame(() => { if (groupRef.current) groupRef.current.rotation.y += 0.0009 })
   return (
-    <group ref={groupRef}>
-      <ambientLight intensity={0.015} />
-      <pointLight position={[3, 2, 4]} intensity={0.6} color="#4466ff" />
-      <pointLight position={[-3, -1, -2]} intensity={0.4} color="#8833cc" />
-      <pointLight position={[0, -3, 3]} intensity={0.3} color="#4422aa" />
-      <CoreGlow state={state} />
-      <HoloShell />
-      <BrainParticles state={state} />
-      <BrainLinks state={state} />
-      <OrbitNeurons state={state} />
+    <group>
+      <mesh geometry={geo}>
+        <shaderMaterial
+          ref={matRef}
+          vertexShader={HOLO_VS}
+          fragmentShader={HOLO_FS}
+          uniforms={uniforms}
+          transparent
+          side={THREE.DoubleSide}
+          depthWrite={false}
+          blending={THREE.AdditiveBlending}
+        />
+      </mesh>
+      <mesh geometry={geo}>
+        <meshBasicMaterial
+          ref={wireRef}
+          color={new THREE.Color(PALETTE.idle)}
+          wireframe
+          transparent
+          opacity={0.045}
+          depthWrite={false}
+          blending={THREE.AdditiveBlending}
+        />
+      </mesh>
     </group>
   )
 }
 
+/* ── Fallback icosahedron while GLB loads ───────────────────────────── */
+function FallbackBrain() {
+  const ref = useRef<THREE.Mesh>(null)
+  useFrame(({ clock }) => {
+    if (ref.current) ref.current.rotation.y = clock.getElapsedTime() * 0.4
+  })
+  return (
+    <mesh ref={ref}>
+      <icosahedronGeometry args={[0.85, 3]} />
+      <meshBasicMaterial color="#4488ff" wireframe transparent opacity={0.25}
+        blending={THREE.AdditiveBlending} depthWrite={false} />
+    </mesh>
+  )
+}
+
+/* ── Particles around brain ─────────────────────────────────────────── */
+function Particles({ state }: { state: BrainState }) {
+  const matRef = useRef<THREE.ShaderMaterial>(null)
+  const { pos, sz, ph } = useMemo(() => makeParticles(500), [])
+  const uniforms = useMemo(() => ({
+    uTime: { value: 0 },
+    uDPR:  { value: typeof window !== 'undefined' ? Math.min(window.devicePixelRatio, 2) : 1 },
+    uColA: { value: new THREE.Color(PALETTE.idle) },
+  }), [])
+
+  useFrame(({ clock }) => {
+    if (!matRef.current) return
+    matRef.current.uniforms.uTime.value = clock.getElapsedTime()
+    matRef.current.uniforms.uColA.value.lerp(new THREE.Color(PALETTE[state]), 0.05)
+  })
+
+  return (
+    <points>
+      <bufferGeometry>
+        <bufferAttribute attach="attributes-position" array={pos} count={500} itemSize={3}/>
+        <bufferAttribute attach="attributes-aSz"      array={sz}  count={500} itemSize={1}/>
+        <bufferAttribute attach="attributes-aPh"      array={ph}  count={500} itemSize={1}/>
+      </bufferGeometry>
+      <shaderMaterial ref={matRef}
+        vertexShader={PART_VS} fragmentShader={PART_FS} uniforms={uniforms}
+        transparent depthWrite={false} blending={THREE.AdditiveBlending}/>
+    </points>
+  )
+}
+
+/* ── Inner glow sphere ──────────────────────────────────────────────── */
+function CoreGlow({ state }: { state: BrainState }) {
+  const ref = useRef<THREE.Mesh>(null)
+  useFrame(({ clock }) => {
+    if (!ref.current) return
+    ref.current.scale.setScalar(1 + Math.sin(clock.getElapsedTime() * 0.5) * 0.03)
+    ;(ref.current.material as THREE.MeshBasicMaterial).color.lerp(
+      new THREE.Color(PALETTE[state]), 0.03
+    )
+  })
+  return (
+    <mesh ref={ref}>
+      <sphereGeometry args={[0.78, 24, 24]}/>
+      <meshBasicMaterial color={PALETTE.idle} transparent opacity={0.04}
+        depthWrite={false} blending={THREE.AdditiveBlending}/>
+    </mesh>
+  )
+}
+
+/* ── Scene root ─────────────────────────────────────────────────────── */
+function Scene({ state }: { state: BrainState }) {
+  const groupRef = useRef<THREE.Group>(null)
+  useFrame(() => { if (groupRef.current) groupRef.current.rotation.y += 0.0007 })
+
+  return (
+    <group ref={groupRef} scale={0.65}>
+      <CoreGlow state={state}/>
+      <Float speed={0.9} rotationIntensity={0.06} floatIntensity={0.04}>
+        <Suspense fallback={<FallbackBrain/>}>
+          <BrainModel state={state}/>
+        </Suspense>
+      </Float>
+      <Particles state={state}/>
+    </group>
+  )
+}
+
+/* ── Export ──────────────────────────────────────────────────────────── */
 export default function NeuralBrainScene({ state = 'idle' }: { state?: BrainState }) {
+  const dpr = typeof window !== 'undefined' ? Math.min(window.devicePixelRatio, 2) : 1
   return (
     <Canvas
-      camera={{ position: [0, 0.15, 3.8], fov: 52, near: 0.01, far: 100 }}
-      dpr={Math.min(window.devicePixelRatio, 2)}
-      gl={{ antialias: false, alpha: true, premultipliedAlpha: false }}
+      camera={{ position: [0, 0.1, 3.0], fov: 38, near: 0.01, far: 50 }}
+      dpr={dpr}
+      gl={{ antialias: true, alpha: true, premultipliedAlpha: false }}
       onCreated={({ gl }) => {
         gl.setClearColor(new THREE.Color(0, 0, 0), 0)
         gl.toneMapping = THREE.ACESFilmicToneMapping
-        gl.toneMappingExposure = 1.0
+        gl.toneMappingExposure = 1.1
       }}
-      style={{ background: 'transparent' }}
+      style={{ background: 'transparent', width: '100%', height: '100%' }}
     >
-      <Scene state={state} />
+      <Scene state={state}/>
       <EffectComposer>
-        <Bloom intensity={2.2} luminanceThreshold={0.18} luminanceSmoothing={0.85} radius={0.75} mipmapBlur />
+        <Bloom intensity={1.8} luminanceThreshold={0.28} luminanceSmoothing={0.7} radius={0.4} mipmapBlur/>
       </EffectComposer>
     </Canvas>
   )
 }
+
+useGLTF.preload('/models/brain.glb')

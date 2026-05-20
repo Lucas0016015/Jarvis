@@ -13,7 +13,7 @@ interface Email {
   unread: boolean; time: string;
 }
 
-const API = 'http://localhost:8000/api/v1/emails';
+const API = '/api/emails';
 
 export default function EmailModePanel() {
   const [emails, setEmails] = useState<Email[]>([]);
@@ -25,8 +25,11 @@ export default function EmailModePanel() {
       try {
         const res = await fetch(API);
         if (!res.ok) throw new Error('Failed to fetch');
-        const data = await res.json();
-        setEmails(data);
+      const data = await res.json();
+      if (!Array.isArray(data)) {
+        throw new Error('Invalid response format');
+      }
+      setEmails(data);
         setError(null);
       } catch (e) {
         setError('Gmail API not configured. Set GMAIL_CREDENTIALS_FILE in .env');

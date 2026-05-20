@@ -63,7 +63,15 @@ class Settings(BaseSettings):
     )
     jwt_algorithm: str = Field(default="HS256", alias="JWT_ALGORITHM")
 
-    # Rate Limiting
+    # Speech (Groq STT + Piper TTS)
+    groq_api_key: str | None = Field(default=None, alias="GROQ_API_KEY")
+    groq_stt_model: str = Field(default="whisper-large-v3", alias="GROQ_STT_MODEL")
+    piper_model_path: str = Field(
+        default="data/voices/es_ES-davefx-medium.onnx",
+        alias="PIPER_MODEL_PATH",
+    )
+
+
     rate_limit_default: str = Field(default="100/minute", alias="RATE_LIMIT_DEFAULT")
     rate_limit_chat: str = Field(default="10/minute", alias="RATE_LIMIT_CHAT")
     rate_limit_agent: str = Field(default="20/minute", alias="RATE_LIMIT_AGENT")

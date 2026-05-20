@@ -3,27 +3,24 @@ from langgraph.graph import StateGraph, START, END
 from langgraph.prebuilt import ToolNode, tools_condition
 
 from backend.agent.state import JarvisState
-from backend.agent.nodes import call_model_with_tools, _get_filtered_tools
+from backend.agent.nodes import call_model_with_tools
 from backend.agent.rag_node import retrieval_node
 from backend.llm import get_llm
 from backend.tools.registry import ALL_TOOLS, CORE_TOOLS, EXTENDED_TOOLS
 from backend.agent.personalities import get_persona
 
-# ── Checkpointer: AsyncSqliteSaver para compatibilidad async ──
+# ── Checkpointer ─────────────────────────────────────────────
+import os
+os.makedirs("data", exist_ok=True)
 try:
-    from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
-    import sqlite3
-    import aiosqlite
-    import os
-    os.makedirs("data", exist_ok=True)
-    conn = sqlite3.connect("data/langgraph.db", check_same_thread=False)
-    CHECKPOINTER = AsyncSqliteSaver(conn)
-    print("[checkpointer] AsyncSqliteSaver activado (persistencia real + async)")
-except Exception:
     from langgraph.checkpoint.memory import MemorySaver
     CHECKPOINTER = MemorySaver()
-    print("[checkpointer] MemorySaver (volatil — no persiste al reiniciar)")
-    
+    print("[checkpointer] MemorySaver (volátil)")
+except Exception as e:
+    from langgraph.checkpoint.memory import MemorySaver
+    CHECKPOINTER = MemorySaver()
+    print(f"[checkpointer] MemorySaver fallback — {e}")
+
 checkpointer = CHECKPOINTER
 
 
@@ -51,7 +48,7 @@ def build_autonomous_graph(tools=None):
 
     def dynamic_agent_node(state: JarvisState):
         last_msg = state["messages"][-1].content if state["messages"] else ""
-        persona = state.get("persona", "default")
+        persona = state.get("persona", "profesional")
 
         from backend.agent.personalities import get_persona as gp
         persona_config = gp(persona)

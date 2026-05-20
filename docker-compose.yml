@@ -1,40 +1,57 @@
+# ── JARVIS Production Docker Compose ─────────────────────────
+# Usage:
+#   docker-compose -f docker-compose.yml up -d
+#   docker-compose -f docker-compose.yml up -d --build
+# ═══════════════════════════════════════════════════════════════
+
 services:
   backend:
     build:
       context: .
       dockerfile: Dockerfile.backend
+    container_name: jarvis-backend
+    restart: unless-stopped
     ports:
       - "8000:8000"
+    env_file:
+      - .env
     environment:
-      - LLM_PROVIDER=lm_studio
-      - LM_STUDIO_BASE_URL=${LM_STUDIO_BASE_URL:-http://host.docker.internal:1234/v1}
-      - LM_STUDIO_MODEL=${LM_STUDIO_MODEL:-qwen/qwen2.5-vl-7b}
-      - STORAGE_TYPE=neon
-      - DATABASE_URL=${DATABASE_URL}
       - DATA_DIR=/app/data
-      - MAX_CONTEXT_MESSAGES=50
-      - CORS_ORIGINS=["http://localhost:3000"]
       - API_HOST=0.0.0.0
       - API_PORT=8000
     volumes:
       - ./data:/app/data
     healthcheck:
-      test: ["CMD", "python", "-c", "import httpx; httpx.get('http://localhost:8000/api/v1/health/live')"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/v1/health/live')"]
       interval: 30s
       timeout: 10s
       retries: 3
+      start_period: 60s
+    networks:
+      - jarvis-network
 
   frontend:
     build:
       context: .
       dockerfile: Dockerfile.frontend
+    container_name: jarvis-frontend
+    restart: unless-stopped
     ports:
       - "3000:3000"
     environment:
-      - NEXT_PUBLIC_API_URL=http://localhost:8000
+      - API_URL=http://backend:8000
+      - NODE_ENV=production
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
+    networks:
+      - jarvis-network
 
 networks:
-  default:
+  jarvis-network:
     name: jarvis-network
+    driver: bridge
+
+volumes:
+  jarvis-data:
+    driver: local
