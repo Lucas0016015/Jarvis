@@ -21,7 +21,7 @@ interface AppSettings {
 }
 
 const DEFAULT_SETTINGS: AppSettings = {
-  apiUrl: 'http://localhost:8001',
+  apiUrl: process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8001',
   autoConnect: true,
 };
 
@@ -61,7 +61,10 @@ export function useJarvisChat() {
       if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
       if (globalWs) { globalWs.close(); globalWs = null; }
 
-      const wsUrl = 'ws://127.0.0.1:8001/api/v1/ws/chat';
+      const apiUrl = settings.apiUrl;
+      const wsProtocol = apiUrl.startsWith('https') ? 'wss' : 'ws';
+      const wsHost = apiUrl.replace(/^https?:\/\//, '');
+      const wsUrl = `${wsProtocol}://${wsHost}/api/v1/ws/chat`;
       let ws: WebSocket;
       try {
         ws = new WebSocket(wsUrl);
