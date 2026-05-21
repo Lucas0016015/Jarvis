@@ -1,7 +1,7 @@
 'use client';
 
-import React, { KeyboardEvent, useRef, useEffect, useState } from 'react';
-import { Send, Bot, User, Plus, MessageSquare, Pencil, Trash2, X, History } from 'lucide-react';
+import React, { KeyboardEvent, useRef, useEffect, useState, ChangeEvent } from 'react';
+import { Send, Bot, User, Plus, MessageSquare, Pencil, Trash2, X, History, Paperclip } from 'lucide-react';
 import { useJarvisStore } from '@/store/jarvisStore';
 import { useJarvisChat } from '@/hooks/useJarvisChat';
 import { cn } from '@/lib/utils';
@@ -30,6 +30,9 @@ export default function ChatModePanel() {
   const { sendMessage: wsSend, isConnected, status } = useJarvisChat();
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [attachments, setAttachments] = useState<File[]>([]);
+  const [uploading, setUploading] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editTitle, setEditTitle] = useState('');
@@ -45,14 +48,74 @@ export default function ChatModePanel() {
     }
   };
 
-  const sendMessage = () => {
-    const msg = input.trim();
-    if (!msg) return;
+  const handleFileSelect = (e: ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files.length > 0) {
+      setAttachments(prev => [...prev, ...Array.from(e.target.files!)]);
+    }
+  };
 
-    const userMessage = { id: crypto.randomUUID(), role: 'user' as const, content: msg };
+  const removeAttachment = (index: number) => {
+    setAttachments(prev => prev.filter((_, i) => i !== index));
+  };
+
+  const uploadAttachments = async (): Promise<Array<{key: string, filename: string, size: number, content_type: string}>> => {
+    if (attachments.length === 0) return [];
+    const results = [];
+    const settings = JSON.parse(localStorage.getItem('jarvis_settings') || '{}');
+    const apiUrl = settings.apiUrl || (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8001');
+    
+    for (const file of attachments) {
+      const form = new FormData();
+      form.append('file', file);
+      form.append('folder', 'chat_attachments');
+      form.append('generate_url', 'false');
+      
+      const res = await fetch(`${apiUrl}/api/v1/files/upload`, {
+        method: 'POST',
+        body: form,
+      });
+      if (!res.ok) throw new Error(`Upload failed: ${res.status}`);
+      const data = await res.json();
+      results.push({
+        key: data.key,
+        filename: data.filename,
+        size: data.size,
+        content_type: data.content_type,
+      });
+    }
+    return results;
+  };
+
+  const sendMessage = async () => {
+    const msg = input.trim();
+    if (!msg && attachments.length === 0) return;
+
+    // Show user message immediately
+    const userMessage = { id: crypto.randomUUID(), role: 'user' as const, content: msg || '[Archivo adjunto]' };
     useJarvisStore.getState().appendChatMessage(userMessage);
     setInput('');
-    wsSend(msg);
+
+    // Upload files if any
+    let uploadedFiles: Array<{key: string, filename: string}> = [];
+    if (attachments.length > 0) {
+      setUploading(true);
+      try {
+        uploadedFiles = await uploadAttachments();
+      } catch (err) {
+        console.error('Upload error:', err);
+        useJarvisStore.getState().appendChatMessage({
+          id: crypto.randomUUID(), role: 'assistant', content: '❌ Error al subir archivo(s). Intentá de nuevo.',
+        });
+        setUploading(false);
+        setAttachments([]);
+        return;
+      }
+      setUploading(false);
+      setAttachments([]);
+    }
+
+    // Send via WebSocket with attachments
+    wsSend(msg, uploadedFiles);
   };
 
   const startEditing = (id: string, title: string) => {
@@ -279,24 +342,60 @@ export default function ChatModePanel() {
           )}
 
           <div className="flex items-end gap-2">
-            <textarea
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onKeyDown={handleKeyDown}
-              placeholder="Escribí tu consulta... (Shift+Enter para nueva línea)"
-              rows={3}
-              className="flex-1 bg-white/[0.03] border border-white/[0.08] rounded-2xl px-4 py-3 text-[14px] text-white/90 resize-none outline-none placeholder:text-white/20 focus:border-cyan-400/30 transition-all w-full"
-              style={{ minHeight: 80, maxHeight: 160, width: '100%' }}
-            />
-
-            <button
-              onClick={sendMessage}
-              disabled={!input.trim()}
-              className="flex items-center justify-center w-12 h-12 rounded-xl btn-cyan shrink-0 disabled:opacity-30 disabled:cursor-not-allowed mb-0.5"
-              aria-label="Enviar mensaje"
-            >
-              <Send className="w-5 h-5" />
-            </button>
+            <div className="flex-1 relative">
+              {attachments.length > 0 && (
+                <div className="flex flex-wrap gap-1.5 mb-1.5 px-1">
+                  {attachments.map((file, i) => (
+                    <div key={i} className="flex items-center gap-1 bg-white/[0.06] border border-white/[0.08] rounded-lg px-2 py-1 text-[11px] text-white/50">
+                      <span className="truncate max-w-[120px]">{file.name}</span>
+                      <span className="text-white/20">({(file.size / 1024).toFixed(0)}KB)</span>
+                      <button onClick={() => removeAttachment(i)} className="ml-1 text-white/20 hover:text-red-400">
+                        <X className="w-3 h-3" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <div className="flex items-end gap-2">
+                <textarea
+                  value={input}
+                  onChange={(e) => setInput(e.target.value)}
+                  onKeyDown={handleKeyDown}
+                  placeholder={attachments.length > 0 ? "Agregá una pregunta sobre el archivo..." : "Escribí tu consulta... (Shift+Enter para nueva línea)"}
+                  rows={3}
+                  className="flex-1 bg-white/[0.03] border border-white/[0.08] rounded-2xl px-4 py-3 text-[14px] text-white/90 resize-none outline-none placeholder:text-white/20 focus:border-cyan-400/30 transition-all w-full"
+                  style={{ minHeight: 80, maxHeight: 160, width: '100%' }}
+                />
+                <button
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={uploading}
+                  className="flex items-center justify-center w-10 h-12 rounded-xl border border-white/[0.08] text-white/30 hover:text-white/60 hover:border-white/[0.15] transition-all shrink-0"
+                  title="Adjuntar archivo"
+                >
+                  <Paperclip className="w-4 h-4" />
+                </button>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  multiple
+                  accept=".pdf,.txt,.md,.csv,.json,.py,.js,.ts,.html,.css,.xml,.yaml,.yml"
+                  className="hidden"
+                  onChange={handleFileSelect}
+                />
+                <button
+                  onClick={sendMessage}
+                  disabled={(!input.trim() && attachments.length === 0) || uploading}
+                  className="flex items-center justify-center w-12 h-12 rounded-xl btn-cyan shrink-0 disabled:opacity-30 disabled:cursor-not-allowed"
+                  aria-label="Enviar mensaje"
+                >
+                  {uploading ? (
+                    <div className="w-4 h-4 border-2 border-white/30 border-t-white/80 rounded-full animate-spin" />
+                  ) : (
+                    <Send className="w-5 h-5" />
+                  )}
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       </div>

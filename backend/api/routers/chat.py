@@ -9,6 +9,7 @@ from loguru import logger
 
 from backend.api.dependencies import get_jarvis_graph
 from backend.models.chat import ChatRequest, ChatResponse, StreamChunk
+from backend.core.file_extractor import build_file_context
 
 router = APIRouter()
 
@@ -55,8 +56,9 @@ async def ws_chat(websocket: WebSocket, graph=Depends(get_jarvis_graph)):
             message = data.get("message", "")
             session_id = data.get("session_id", "default")
             persona = data.get("persona", "profesional")
+            attachments = data.get("attachments", [])
 
-            if not message.strip():
+            if not message.strip() and not attachments:
                 continue
 
             config = {
@@ -65,7 +67,23 @@ async def ws_chat(websocket: WebSocket, graph=Depends(get_jarvis_graph)):
                 }
             }
 
-            logger.info(f"WS chat: session={session_id}, persona={persona}, msg_len={len(message)}")
+            # ── Procesar adjuntos ───────────────────────────────────────────
+            combined_message = message
+            if attachments:
+                file_keys = [a["key"] for a in attachments]
+                filenames = [a.get("filename", a["key"].split("/")[-1]) for a in attachments]
+                logger.info(f"WS chat: {len(attachments)} adjuntos session={session_id}")
+                await websocket.send_text(
+                    StreamChunk(type="file_uploaded", content=f"📎 Procesando {len(attachments)} archivo(s)...").model_dump_json()
+                )
+                try:
+                    file_context = build_file_context(file_keys, filenames)
+                    combined_message = f"{file_context}\n\n{message}"
+                except Exception as e:
+                    logger.warning(f"Error extrayendo texto de adjuntos: {e}")
+                    combined_message = f"[Archivos adjuntos no procesados: {e}]\n\n{message}"
+
+            logger.info(f"WS chat: session={session_id}, persona={persona}, msg_len={len(message)}, attachments={len(attachments)}")
 
             # ── Intento 1: Streaming con buffer ──────────────────────────
             try:
@@ -75,7 +93,7 @@ async def ws_chat(websocket: WebSocket, graph=Depends(get_jarvis_graph)):
 
                 async for event in graph.astream_events(
                     {
-                        "messages": [HumanMessage(content=message)],
+                        "messages": [HumanMessage(content=combined_message)],
                         "session_id": session_id,
                         "persona": persona,
                     },
@@ -136,7 +154,7 @@ async def ws_chat(websocket: WebSocket, graph=Depends(get_jarvis_graph)):
                 try:
                     state = await graph.ainvoke(
                         {
-                            "messages": [HumanMessage(content=message)],
+                            "messages": [HumanMessage(content=combined_message)],
                             "session_id": session_id,
                             "persona": persona,
                         },

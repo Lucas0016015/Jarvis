@@ -20,6 +20,9 @@ build/
 # .env.example stays tracked; .env.production does NOT
 .env.production
 
+# Agent skills registry (generated)
+.atl/
+
 # Data / secrets
 data/
 credentials.json

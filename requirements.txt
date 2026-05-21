@@ -79,6 +79,10 @@ onnxruntime>=1.20.0
 # Speech (STT) — Groq cloud API
 groq>=1.0.0
 
+# File text extraction
+pypdf>=5.0.0
+python-magic>=0.4.27
+
 # Utils
 psutil>=5.9.0
 python-dotenv>=1.0.0

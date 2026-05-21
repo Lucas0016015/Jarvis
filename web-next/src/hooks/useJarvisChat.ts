@@ -201,12 +201,11 @@ export function useJarvisChat() {
     };
   }, [settings.apiUrl]);
 
-  // Enviar mensaje
-  const sendMessage = useCallback((text: string) => {
+  // Enviar mensaje (opcional con attachments)
+  const sendMessage = useCallback((text: string, attachments?: Array<{key: string; filename: string}>) => {
     const msg = text.trim();
-    if (!msg) return;
+    if (!msg && (!attachments || attachments.length === 0)) return;
 
-    store.appendChatMessage({ id: makeId(), role: 'user', content: msg });
     store.setLastUserText(msg);
     store.setChatInput('');
 
@@ -229,6 +228,7 @@ export function useJarvisChat() {
       message: msg,
       session_id: store.chatSessionId,
       persona: store.persona?.name || 'profesional',
+      attachments: attachments || [],
     }));
   }, [store]);
 
