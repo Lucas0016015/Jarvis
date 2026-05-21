@@ -203,6 +203,10 @@ app.include_router(stt.router, prefix="/api/v1", tags=["stt"])
 app.include_router(auth.router, prefix="/api/v1", tags=["auth"])
 app.include_router(voice.router, prefix="/api/v1/voice", tags=["voice"])
 
+# File storage (Railway Object Storage bucket)
+from backend.api.routers import files
+app.include_router(files.router, prefix="/api/v1", tags=["files"])
+
 
 # -- Legacy Routes (backward compatibility) --------------------
 
