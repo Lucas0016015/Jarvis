@@ -99,7 +99,7 @@ VOICE_CATALOG = {
     },
 }
 
-DEFAULT_VOICE = "es_ES-davefx-medium"
+DEFAULT_VOICE = "es_ES-sharvard-medium"
 
 
 # ── Helper: descarga modelo si no existe ───────────────────────────────
@@ -206,19 +206,16 @@ class TextToSpeechService:
         self,
         text: str,
         speaker_id: Optional[int] = None,
-        length_scale: float = 1.0,
+        length_scale: float = 1.15,
         noise_scale: float = 0.667,
-        noise_w: float = 0.333,
+        noise_w: float = 0.45,
     ) -> bytes:
-        """
-        Genera audio WAV desde texto.
-        """
+        """Genera audio WAV desde texto con voz natural."""
         if not self._voice:
             self._init_voice()
         
         text = self._clean_text(text)
         
-        # Configuración de síntesis
         from piper.config import SynthesisConfig
         syn_config = SynthesisConfig(
             length_scale=length_scale,

@@ -1,11 +1,13 @@
 'use client'
 
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import dynamic from 'next/dynamic'
 import { useJarvisStore } from '@/store/jarvisStore'
-import { AppSidebar } from '@/components/AppSidebar'
-import { ScrollArea } from '@/components/ui/scroll-area'
-import { Mic, Zap, MessageCircle, BrainCircuit, Moon, AlertTriangle } from 'lucide-react'
+import { 
+  Mic, Zap, MessageCircle, BrainCircuit, Moon, AlertTriangle, 
+  FolderOpen, StickyNote, CheckSquare, Settings, Sparkles
+} from 'lucide-react'
+import { cn } from '@/lib/utils'
 
 /* ── Lazy-load panels + brain + bubble + voice ───────────────── */
 const BrainBackground = dynamic(() => import('@/components/BrainBackground'), { ssr: false })
@@ -15,16 +17,17 @@ const VoiceControls   = dynamic(() => import('@/components/VoiceControls'),   { 
 const ChatPanel        = dynamic(() => import('@/components/panels/ChatModePanel'),       { ssr: false })
 const TasksPanel       = dynamic(() => import('@/components/panels/TasksModePanel'),      { ssr: false })
 const NotesPanel       = dynamic(() => import('@/components/panels/NotesModePanel'),      { ssr: false })
-const VoicePanel       = dynamic(() => import('@/components/panels/VoiceModePanel'),      { ssr: false })
-const TimerPanel       = dynamic(() => import('@/components/panels/TimerModePanel'),      { ssr: false })
-const EmailPanel       = dynamic(() => import('@/components/panels/EmailModePanel'),      { ssr: false })
 const SettingsPanel    = dynamic(() => import('@/components/panels/SettingsPanel'),       { ssr: false })
 const PersonalitiesPanel = dynamic(() => import('@/components/panels/PersonalitiesPanel'), { ssr: false })
+const FilesPanel       = dynamic(() => import('@/components/panels/FilesModePanel'),       { ssr: false })
 
 const PANELS: Record<string, React.ComponentType> = {
-  chat: ChatPanel, notes: NotesPanel, tasks: TasksPanel,
-  voice: VoicePanel, timer: TimerPanel, email: EmailPanel,
-  settings: SettingsPanel, personalities: PersonalitiesPanel,
+  chat: ChatPanel, 
+  notes: NotesPanel, 
+  tasks: TasksPanel,
+  personalities: PersonalitiesPanel,
+  files: FilesPanel,
+  settings: SettingsPanel,
 }
 
 /* ── State meta for status indicator ─────────────────────────── */
@@ -58,133 +61,156 @@ function StatusIndicator() {
           animation: activityState === 'thinking' || activityState === 'listening' ? 'statusPulse 1.2s infinite' : 'none',
         }}
       />
-      <span className="text-xs font-medium text-white/60">{meta.label}</span>
+      <span className="text-[10px] font-semibold text-white/50 tracking-wider">{meta.label}</span>
     </div>
   )
 }
 
-/* ── Control Dock (bottom-center) ─────────────────────────────── */
-function ControlDock() {
-  const { activityState, setActivityState } = useJarvisStore()
-  const states: Array<'idle' | 'thinking' | 'speaking'> = ['idle', 'thinking', 'speaking']
+/* ── Floating Title (Home only) ────────────────────────────── */
+function FloatingTitle() {
+  return (
+    <div className="fixed top-12 left-1/2 -translate-x-1/2 z-40 pointer-events-none text-center">
+      <h1 className="text-3xl font-black tracking-[0.35em] text-white/80" style={{ textShadow: '0 0 35px rgba(68,204,221,0.25)' }}>
+        JARVIS
+      </h1>
+      <p className="text-[9px] tracking-[0.45em] uppercase text-cyan-400/40 mt-2 font-bold">Quantum Core Active</p>
+    </div>
+  )
+}
 
-  const labels = {
-    idle: '⏸ Idle',
-    thinking: '⚡ Pensando',
-    speaking: '💬 Hablando',
+/* ── Unified Panel View (Blurred backdrops, header) ─────────── */
+function UnifiedPanelView() {
+  const { currentScreen } = useJarvisStore()
+  const activeScreen = currentScreen === 'home' ? 'chat' : currentScreen
+  const Panel = PANELS[activeScreen] || ChatPanel
+
+  const titles: Record<string, string> = {
+    chat: 'Chat Inteligente',
+    notes: 'Notas Neurales',
+    tasks: 'Tareas y Pendientes',
+    files: 'Railway Storage',
+    settings: 'Configuración del Sistema',
+    personalities: 'Personalidades',
   }
 
   return (
-    <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex gap-2.5 p-2 rounded-[14px]"
-      style={{
-        background: 'rgba(0,0,0,0.35)',
-        backdropFilter: 'blur(16px)',
-        border: '1px solid rgba(255,255,255,0.06)',
-      }}
-    >
-      {states.map((s) => (
-        <button
-          key={s}
-          onClick={() => setActivityState(s)}
-          className={`px-4 py-2.5 rounded-[11px] text-xs font-medium transition-all duration-300 cursor-pointer ${
-            activityState === s
-              ? 'text-white font-semibold'
-              : 'text-white/55 hover:text-white hover:bg-white/[0.06]'
-          }`}
-          style={
-            activityState === s
-              ? {
-                  background: 'linear-gradient(135deg, rgba(236,72,153,.25), rgba(64,224,208,.15))',
-                  boxShadow: '0 0 20px rgba(236,72,153,.25)',
-                }
-              : { background: 'rgba(255,255,255,0.03)' }
-          }
-        >
-          {labels[s]}
-        </button>
-      ))}
+    <div className="flex flex-col w-full h-full bg-[#06060c]/80 backdrop-blur-2xl text-white">
+      {/* Top Header */}
+      <div className="flex items-center justify-between px-6 py-4 border-b border-white/[0.05] shrink-0"
+        style={{
+          background: 'linear-gradient(180deg, rgba(0,0,0,0.4) 0%, rgba(0,0,0,0) 100%)'
+        }}
+      >
+        <div className="flex items-center gap-2">
+          <div className="w-2.5 h-2.5 rounded-full bg-cyan-400 animate-pulse shadow-[0_0_10px_#44ccdd]" />
+          <h1 className="text-xs font-black tracking-[0.2em] uppercase text-white/85">
+            {titles[activeScreen] || 'JARVIS'}
+          </h1>
+        </div>
+        <div className="text-[8px] font-black text-cyan-300/80 tracking-widest bg-cyan-400/10 border border-cyan-400/25 px-2.5 py-1 rounded-full uppercase shadow-[0_0_12px_rgba(68,204,221,0.15)]">
+          Neural Link
+        </div>
+      </div>
+      
+      {/* Content Scroll Area */}
+      <div className="flex-1 overflow-y-auto pb-24 scrollbar-hide">
+        <Panel />
+      </div>
     </div>
   )
 }
 
-/* ── Hint ────────────────────────────────────────────────────── */
-function Hint() {
+/* ── Unified Floating Bottom Navbar ────────────────────────── */
+function UnifiedBottomNavbar() {
+  const { currentScreen, setScreen } = useJarvisStore()
+  const activeScreen = currentScreen === 'home' ? 'home' : currentScreen
+
+  const tabs = [
+    { id: 'home', label: 'Home', icon: BrainCircuit },
+    { id: 'chat', label: 'Chat', icon: MessageCircle },
+    { id: 'notes', label: 'Notas', icon: StickyNote },
+    { id: 'tasks', label: 'Tareas', icon: CheckSquare },
+    { id: 'personalities', label: 'Mind', icon: Sparkles },
+    { id: 'files', label: 'Archivos', icon: FolderOpen },
+    { id: 'settings', label: 'Config', icon: Settings },
+  ]
+
   return (
-    <div className="fixed bottom-20 left-1/2 -translate-x-1/2 z-30 text-white/25 text-[11px] whitespace-nowrap pointer-events-none">
-      Arrastra para orbitar · Scroll para zoom
+    <div className="fixed bottom-5 left-1/2 -translate-x-1/2 z-50 w-[94vw] max-w-[620px] px-2.5 py-2.5 rounded-2xl flex items-center justify-around border border-white/[0.08]"
+      style={{
+        background: 'rgba(7,7,12,0.8)',
+        backdropFilter: 'blur(32px) saturate(1.4)',
+        boxShadow: '0 -10px 40px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.06)'
+      }}
+    >
+      {tabs.map((tab) => {
+        const Icon = tab.icon
+        const active = activeScreen === tab.id
+        return (
+          <button
+            key={tab.id}
+            onClick={() => setScreen(tab.id as any)}
+            className={cn(
+              "flex flex-col items-center gap-1.5 py-1 px-2 rounded-xl active:scale-95 transition-all text-xs relative cursor-pointer",
+              active ? "text-cyan-300 font-bold" : "text-white/40 hover:text-white/70"
+            )}
+          >
+            <Icon className={cn("w-4.5 h-4.5 transition-transform duration-300", active && "scale-115 text-cyan-300")} />
+            <span className="text-[9px] tracking-wider whitespace-nowrap">{tab.label}</span>
+            {active && (
+              <span className="absolute bottom-0 w-3 h-0.5 bg-cyan-300 rounded-full shadow-[0_0_8px_#44ccdd]" />
+            )}
+          </button>
+        )
+      })}
     </div>
   )
 }
 
 /* ══════════════════════════════════════════════════════════════
-   ROOT PAGE — CINEMATIC JARVIS
-   Brain 3D as full background. Panels float with glass morphism.
+   ROOT PAGE — CINEMATIC JARVIS (ADAPTIVE VIEWPORT)
+   A fully unified iOS/macOS responsive application.
 ══════════════════════════════════════════════════════════════ */
 export default function RootPage() {
-  const [panelOpen, setPanelOpen] = useState(true)
   const { currentScreen } = useJarvisStore()
-  const Panel = PANELS[currentScreen] || ChatPanel
+  const activeScreen = currentScreen === 'home' ? 'home' : currentScreen
 
   return (
-    <div className="relative w-screen h-screen overflow-hidden bg-[#0a0a0f]">
-      {/* 1. Brain 3D Background (z-0) */}
+    <div className="relative w-screen h-screen overflow-hidden bg-[#040408] text-white">
+      {/* 1. 3D Brain full screen background (Always active in z-0) */}
       <BrainBackground />
+      
+      {/* 2. Ambient backdrop overlay to adjust contrast when panels are loaded */}
+      {activeScreen !== 'home' && (
+        <div className="absolute inset-0 z-10 bg-black/40 backdrop-blur-sm transition-all duration-500" />
+      )}
 
-      {/* 2. Status Badge (z-50) */}
+      {/* 3. Floating Status Badge */}
       <StatusIndicator />
 
-      {/* 3. Thinking Bubble (z-40) */}
+      {/* 4. Thinking Bubble status block */}
       <ThinkingBubble />
 
-      {/* 4. Control Dock REPLACED with Voice Controls (mic + waves + navbar) */}
-      <VoiceControls />
+      {/* 5. Main Screen Render Logic */}
+      {activeScreen === 'home' ? (
+        <>
+          {/* Centered Large Microphone and Waves */}
+          <VoiceControls />
 
-      {/* 5. Floating Title */}
-      <div className="fixed top-5 left-1/2 -translate-x-1/2 z-40 pointer-events-none">
-        <h1
-          className="text-xl font-bold tracking-[0.25em] text-white/70"
-          style={{ textShadow: '0 0 30px rgba(68,204,221,0.25)' }}
-        >
-          JARVIS
-        </h1>
-      </div>
-
-      {/* 7. UI Overlay Layer (z-20) */}
-      <div className="relative z-20 flex h-full w-full pointer-events-none">
-        {/* Sidebar */}
-        <div className="pointer-events-auto shrink-0 h-full">
-          <AppSidebar />
+          {/* Holographic Header */}
+          <FloatingTitle />
+        </>
+      ) : (
+        /* Floating centered viewport card for notes/tasks/chat/etc. */
+        <div className="relative z-20 flex items-center justify-center w-full h-full pt-4 pb-24">
+          <div className="w-full h-full md:w-[600px] md:h-[82vh] md:rounded-[28px] md:border md:border-white/[0.08] md:shadow-[0_24px_60px_rgba(0,0,0,0.6)] overflow-hidden animate-fade-in">
+            <UnifiedPanelView />
+          </div>
         </div>
+      )}
 
-        {/* Main panel area (right) */}
-        <div className="flex-1 flex justify-end items-start p-4 h-full">
-          {panelOpen && (
-            <div
-              className="pointer-events-auto w-[420px] max-w-[42vw] h-[85vh] rounded-2xl overflow-hidden animate-fade-in"
-              style={{
-                background: 'rgba(10,10,15,0.75)',
-                backdropFilter: 'blur(20px)',
-                border: '1px solid rgba(255,255,255,0.06)',
-                boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
-              }}
-            >
-              <ScrollArea className="h-full">
-                <Panel />
-              </ScrollArea>
-            </div>
-          )}
-
-          {/* Panel toggle button (when closed) */}
-          {!panelOpen && (
-            <button
-              onClick={() => setPanelOpen(true)}
-              className="pointer-events-auto mt-4 px-3 py-2 rounded-xl text-xs text-white/40 bg-white/[0.03] border border-white/[0.06] hover:text-white hover:bg-white/[0.06] transition-all"
-            >
-              Abrir panel
-            </button>
-          )}
-        </div>
-      </div>
+      {/* 6. Single Unified Floating Bottom Navbar */}
+      <UnifiedBottomNavbar />
     </div>
   )
 }

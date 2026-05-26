@@ -32,6 +32,7 @@ export default function ChatModePanel() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [attachments, setAttachments] = useState<File[]>([]);
+  const [preUploadedAttachments, setPreUploadedAttachments] = useState<Array<{key: string, filename: string, size?: number}>>([]);
   const [uploading, setUploading] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -40,6 +41,22 @@ export default function ChatModePanel() {
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
+
+  useEffect(() => {
+    const pending = localStorage.getItem('jarvis_pending_attachment');
+    if (pending) {
+      try {
+        const file = JSON.parse(pending);
+        setPreUploadedAttachments(prev => {
+          if (prev.some(f => f.key === file.key)) return prev;
+          return [...prev, file];
+        });
+        localStorage.removeItem('jarvis_pending_attachment');
+      } catch (e) {
+        console.error('Error parsing pending attachment', e);
+      }
+    }
+  }, [input]);
 
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -88,7 +105,7 @@ export default function ChatModePanel() {
 
   const sendMessage = async () => {
     const msg = input.trim();
-    if (!msg && attachments.length === 0) return;
+    if (!msg && attachments.length === 0 && preUploadedAttachments.length === 0) return;
 
     // Show user message immediately
     const userMessage = { id: crypto.randomUUID(), role: 'user' as const, content: msg || '[Archivo adjunto]' };
@@ -96,11 +113,12 @@ export default function ChatModePanel() {
     setInput('');
 
     // Upload files if any
-    let uploadedFiles: Array<{key: string, filename: string}> = [];
+    let uploadedFiles: Array<{key: string, filename: string}> = [...preUploadedAttachments];
     if (attachments.length > 0) {
       setUploading(true);
       try {
-        uploadedFiles = await uploadAttachments();
+        const newUploaded = await uploadAttachments();
+        uploadedFiles = [...uploadedFiles, ...newUploaded];
       } catch (err) {
         console.error('Upload error:', err);
         useJarvisStore.getState().appendChatMessage({
@@ -113,6 +131,8 @@ export default function ChatModePanel() {
       setUploading(false);
       setAttachments([]);
     }
+
+    setPreUploadedAttachments([]);
 
     // Send via WebSocket with attachments
     wsSend(msg, uploadedFiles);
@@ -343,13 +363,23 @@ export default function ChatModePanel() {
 
           <div className="flex items-end gap-2">
             <div className="flex-1 relative">
-              {attachments.length > 0 && (
+              {(attachments.length > 0 || preUploadedAttachments.length > 0) && (
                 <div className="flex flex-wrap gap-1.5 mb-1.5 px-1">
                   {attachments.map((file, i) => (
-                    <div key={i} className="flex items-center gap-1 bg-white/[0.06] border border-white/[0.08] rounded-lg px-2 py-1 text-[11px] text-white/50">
+                    <div key={`local-${i}`} className="flex items-center gap-1 bg-white/[0.06] border border-white/[0.08] rounded-lg px-2 py-1 text-[11px] text-white/50">
                       <span className="truncate max-w-[120px]">{file.name}</span>
                       <span className="text-white/20">({(file.size / 1024).toFixed(0)}KB)</span>
                       <button onClick={() => removeAttachment(i)} className="ml-1 text-white/20 hover:text-red-400">
+                        <X className="w-3 h-3" />
+                      </button>
+                    </div>
+                  ))}
+                  {preUploadedAttachments.map((file, i) => (
+                    <div key={`pre-${i}`} className="flex items-center gap-1 bg-cyan-400/10 border border-cyan-400/20 rounded-lg px-2 py-1 text-[11px] text-cyan-300">
+                      <span className="truncate max-w-[120px]">{file.filename}</span>
+                      {file.size && <span className="text-cyan-400/50">({(file.size / 1024).toFixed(0)}KB)</span>}
+                      <span className="text-[9px] px-1 bg-cyan-400/20 rounded text-cyan-200">S3</span>
+                      <button onClick={() => setPreUploadedAttachments(prev => prev.filter((_, idx) => idx !== i))} className="ml-1 text-cyan-400/50 hover:text-red-400">
                         <X className="w-3 h-3" />
                       </button>
                     </div>

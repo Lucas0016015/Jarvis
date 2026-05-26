@@ -41,167 +41,209 @@ function makeId(): string {
   return `sess_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`;
 }
 
-/* ── Global WebSocket ──────────────────────────────────────────────── */
+/* ── Global WebSocket (true singleton, not tied to component lifecycle) ── */
 let globalWs: WebSocket | null = null;
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+let reconnectDelay = 1000;
+let refCount = 0;
+let listeners: Array<{
+  onStatus: (s: 'disconnected' | 'connecting' | 'connected' | 'error') => void;
+  onBackendStatus: (s: 'disconnected' | 'connecting' | 'connected' | 'error') => void;
+}> = [];
+
+function notifyStatus(status: 'disconnected' | 'connecting' | 'connected' | 'error') {
+  listeners.forEach(l => l.onStatus(status));
+  listeners.forEach(l => l.onBackendStatus(status));
+}
+
+function ensureConnection() {
+  if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
+
+  // Already connected or connecting — no need to create a new one
+  if (globalWs && (globalWs.readyState === WebSocket.OPEN || globalWs.readyState === WebSocket.CONNECTING)) {
+    return;
+  }
+
+  if (globalWs) {
+    globalWs.close();
+    globalWs = null;
+  }
+
+  const settings = loadSettings();
+  const apiUrl = settings.apiUrl;
+  const wsProtocol = apiUrl.startsWith('https') ? 'wss' : 'ws';
+  const wsHost = apiUrl.replace(/^https?:\/\//, '');
+  const wsUrl = `${wsProtocol}://${wsHost}/api/v1/ws/chat`;
+
+  notifyStatus('connecting');
+
+  let ws: WebSocket;
+  try {
+    ws = new WebSocket(wsUrl);
+  } catch (e) {
+    notifyStatus('error');
+    scheduleReconnect();
+    return;
+  }
+
+  ws.onopen = () => {
+    globalWs = ws;
+    reconnectDelay = 1000;
+    notifyStatus('connected');
+  };
+
+  ws.onclose = () => {
+    globalWs = null;
+    // Only reconnect if there are still active listeners
+    if (refCount <= 0) return;
+    notifyStatus('disconnected');
+    scheduleReconnect();
+  };
+
+  ws.onerror = () => {
+    notifyStatus('error');
+  };
+
+  ws.onmessage = (event) => {
+    try {
+      const data = JSON.parse(event.data);
+      const store = useJarvisStore.getState();
+
+      if (data.type === 'token' && data.content) {
+        const msgs = store.chatMessages;
+        const last = msgs[msgs.length - 1];
+        if (last && last.isStreaming && last.role === 'assistant') {
+          const updated = { ...last, content: last.content + data.content };
+          useJarvisStore.setState({ chatMessages: [...msgs.slice(0, -1), updated] });
+          store.setLastAssistantText(updated.content);
+        } else {
+          const newMsg: ChatMessage = { id: makeId(), role: 'assistant', content: data.content, isStreaming: true };
+          useJarvisStore.setState({ chatMessages: [...msgs, newMsg] });
+          store.setLastAssistantText(data.content);
+        }
+      }
+
+      if (data.type === 'tool_start') {
+        store.setActivityState('thinking');
+        const msgs = useJarvisStore.getState().chatMessages;
+        const last = msgs[msgs.length - 1];
+        if (last && last.role === 'assistant') {
+          useJarvisStore.setState({
+            chatMessages: [...msgs.slice(0, -1), {
+              ...last,
+              toolCalls: [...(last.toolCalls || []), { tool: data.tool_name, input: data.tool_input }],
+            }]
+          });
+        }
+      }
+
+      if (data.type === 'tool_end') {
+        const msgs = useJarvisStore.getState().chatMessages;
+        const last = msgs[msgs.length - 1];
+        if (last && last.role === 'assistant') {
+          useJarvisStore.setState({
+            chatMessages: [...msgs.slice(0, -1), {
+              ...last,
+              toolCalls: last.toolCalls?.map((tc, i) =>
+                i === (last.toolCalls?.length || 0) - 1
+                  ? { ...tc, output: typeof data.tool_output === 'string' ? data.tool_output : JSON.stringify(data.tool_output) }
+                  : tc
+              ),
+            }]
+          });
+        }
+      }
+
+      if (data.type === 'done') {
+        const msgs = useJarvisStore.getState().chatMessages;
+        const last = msgs[msgs.length - 1];
+        if (last && last.isStreaming) {
+          useJarvisStore.setState({ chatMessages: [...msgs.slice(0, -1), { ...last, isStreaming: false }] });
+          store.setLastAssistantText(last.content);
+          store.setActivityState('idle');
+          // Auto-TTS when voice is enabled
+          if (window.speechSynthesis && useJarvisStore.getState().voiceEnabled) {
+            const utter = new SpeechSynthesisUtterance(last.content);
+            utter.lang = 'es-ES';
+            utter.rate = 1.0;
+            const voices = window.speechSynthesis.getVoices();
+            const es = voices.find((v) => v.lang?.startsWith('es'));
+            if (es) utter.voice = es;
+            utter.onstart = () => store.setActivityState('speaking');
+            utter.onend = () => store.setActivityState('idle');
+            utter.onerror = () => store.setActivityState('idle');
+            window.speechSynthesis.cancel();
+            window.speechSynthesis.speak(utter);
+          }
+        }
+      }
+
+      if (data.type === 'error') {
+        const msgs = useJarvisStore.getState().chatMessages;
+        const last = msgs[msgs.length - 1];
+        if (last && last.isStreaming) {
+          useJarvisStore.setState({
+            chatMessages: [...msgs.slice(0, -1), {
+              ...last,
+              isStreaming: false,
+              content: last.content + `\n[Error: ${data.content}]`,
+            }]
+          });
+        }
+        store.setActivityState('error');
+      }
+    } catch (e) {
+      console.error('[WS] Parse error:', e);
+    }
+  };
+}
+
+function scheduleReconnect() {
+  if (reconnectTimer) clearTimeout(reconnectTimer);
+  const delay = reconnectDelay;
+  reconnectDelay = Math.min(reconnectDelay * 1.5, 30000);
+  reconnectTimer = setTimeout(ensureConnection, delay);
+}
+
+function teardownConnection() {
+  if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
+  if (globalWs) { globalWs.close(); globalWs = null; }
+  listeners = [];
+}
 
 export function useJarvisChat() {
   const store = useJarvisStore();
   const [status, setStatus] = useState<'disconnected' | 'connecting' | 'connected' | 'error'>('disconnected');
   const [settings] = useState<AppSettings>(loadSettings);
 
-  // Abrir WebSocket al montar (SOLO en browser)
   useEffect(() => {
     if (typeof window === 'undefined') return;
 
-    setStatus('connecting');
-    store.setBackendStatus('connecting');
+    refCount++;
 
-    const connect = () => {
-      if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
-      if (globalWs) { globalWs.close(); globalWs = null; }
-
-      const apiUrl = settings.apiUrl;
-      const wsProtocol = apiUrl.startsWith('https') ? 'wss' : 'ws';
-      const wsHost = apiUrl.replace(/^https?:\/\//, '');
-      const wsUrl = `${wsProtocol}://${wsHost}/api/v1/ws/chat`;
-      let ws: WebSocket;
-      try {
-        ws = new WebSocket(wsUrl);
-      } catch (e) {
-        setStatus('error');
-        store.setBackendStatus('error');
-        return;
-      }
-
-      ws.onopen = () => {
-        globalWs = ws;
-        setStatus('connected');
-        store.setBackendStatus('connected');
-      };
-
-      ws.onclose = () => {
-        globalWs = null;
-        setStatus('disconnected');
-        store.setBackendStatus('disconnected');
-        if (settings.autoConnect) {
-          reconnectTimer = setTimeout(connect, 3000);
-        }
-      };
-
-      ws.onerror = () => {
-        setStatus('error');
-        store.setBackendStatus('error');
-      };
-
-      ws.onmessage = (event) => {
-        try {
-          const data = JSON.parse(event.data);
-
-          if (data.type === 'token' && data.content) {
-            const msgs = useJarvisStore.getState().chatMessages;
-            const last = msgs[msgs.length - 1];
-            if (last && last.isStreaming && last.role === 'assistant') {
-              const updated = { ...last, content: last.content + data.content };
-              useJarvisStore.setState({ chatMessages: [...msgs.slice(0, -1), updated] });
-              store.setLastAssistantText(updated.content);
-            } else {
-              const newMsg: ChatMessage = { id: makeId(), role: 'assistant', content: data.content, isStreaming: true };
-              useJarvisStore.setState({ chatMessages: [...msgs, newMsg] });
-              store.setLastAssistantText(data.content);
-            }
-          }
-
-          if (data.type === 'tool_start') {
-            store.setActivityState('thinking');
-            const msgs = useJarvisStore.getState().chatMessages;
-            const last = msgs[msgs.length - 1];
-            if (last && last.role === 'assistant') {
-              useJarvisStore.setState({
-                chatMessages: [...msgs.slice(0, -1), {
-                  ...last,
-                  toolCalls: [...(last.toolCalls || []), { tool: data.tool_name, input: data.tool_input }],
-                }]
-              });
-            }
-          }
-
-          if (data.type === 'tool_end') {
-            const msgs = useJarvisStore.getState().chatMessages;
-            const last = msgs[msgs.length - 1];
-            if (last && last.role === 'assistant') {
-              useJarvisStore.setState({
-                chatMessages: [...msgs.slice(0, -1), {
-                  ...last,
-                  toolCalls: last.toolCalls?.map((tc, i) =>
-                    i === (last.toolCalls?.length || 0) - 1
-                      ? { ...tc, output: typeof data.tool_output === 'string' ? data.tool_output : JSON.stringify(data.tool_output) }
-                      : tc
-                  ),
-                }]
-              });
-            }
-          }
-
-          if (data.type === 'done') {
-            const msgs = useJarvisStore.getState().chatMessages;
-            const last = msgs[msgs.length - 1];
-            if (last && last.isStreaming) {
-              useJarvisStore.setState({ chatMessages: [...msgs.slice(0, -1), { ...last, isStreaming: false }] });
-              store.setLastAssistantText(last.content);
-              store.setActivityState('idle');
-              // Auto-TTS: hablar la respuesta si el panel de voz esta activo
-              if (window.speechSynthesis && (window as any).__jarvisVoiceActive) {
-                const utter = new SpeechSynthesisUtterance(last.content);
-                utter.lang = 'es-ES';
-                utter.rate = 1.0;
-                const voices = window.speechSynthesis.getVoices();
-                const es = voices.find((v) => v.lang?.startsWith('es'));
-                if (es) utter.voice = es;
-                window.speechSynthesis.cancel();
-                window.speechSynthesis.speak(utter);
-              }
-            }
-          }
-
-          if (data.type === 'error') {
-            const msgs = useJarvisStore.getState().chatMessages;
-            const last = msgs[msgs.length - 1];
-            if (last && last.isStreaming) {
-              useJarvisStore.setState({
-                chatMessages: [...msgs.slice(0, -1), {
-                  ...last,
-                  isStreaming: false,
-                  content: last.content + `\n[Error: ${data.content}]`,
-                }]
-              });
-            }
-            store.setActivityState('error');
-          }
-        } catch (e) {
-          console.error('[WS] Parse error:', e);
-        }
-      };
+    const listener = {
+      onStatus: setStatus,
+      onBackendStatus: (s: 'disconnected' | 'connecting' | 'connected' | 'error') => store.setBackendStatus(s),
     };
+    listeners.push(listener);
 
-    connect();
-
-    // Fetch personas
-    fetch(`${settings.apiUrl}/api/v1/personas`)
-      .then((r) => r.json())
-      .then((data) => {
-        if (Array.isArray(data)) store.setAvailablePersonas(data);
-      })
-      .catch(() => {});
+    // Only create a new connection if we don't have a working one
+    if (!globalWs || globalWs.readyState !== WebSocket.OPEN) {
+      ensureConnection();
+    } else {
+      listener.onStatus('connected');
+      listener.onBackendStatus('connected');
+    }
 
     return () => {
-      globalWs?.close();
-      globalWs = null;
-      if (reconnectTimer) clearTimeout(reconnectTimer);
+      refCount--;
+      listeners = listeners.filter(l => l !== listener);
+      if (refCount <= 0) {
+        teardownConnection();
+      }
     };
   }, [settings.apiUrl]);
 
-  // Enviar mensaje (opcional con attachments)
   const sendMessage = useCallback((text: string, attachments?: Array<{key: string; filename: string}>) => {
     const msg = text.trim();
     if (!msg && (!attachments || attachments.length === 0)) return;
@@ -233,7 +275,10 @@ export function useJarvisChat() {
   }, [store]);
 
   const retryConnection = useCallback(() => {
-    globalWs?.close();
+    if (globalWs) { globalWs.close(); globalWs = null; }
+    if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
+    reconnectDelay = 1000;
+    ensureConnection();
   }, []);
 
   const clearChat = useCallback(() => {

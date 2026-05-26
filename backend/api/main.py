@@ -53,6 +53,17 @@ async def lifespan(app: FastAPI):
     # This prevents crashes when LLM provider is unavailable
     logger.info("Graph will initialize on first request (lazy mode)")
 
+    # PRE-WARM TTS: Precargar la voz Piper al iniciar para que el primer
+    # request de voz no tarde 80+ segundos cargando el modelo ONNX
+    try:
+        from backend.services.tts_service import get_tts_service
+        tts = get_tts_service()
+        if not tts._voice:
+            tts._init_voice()
+        logger.info("TTS voice pre-warmed successfully")
+    except Exception as e:
+        logger.warning(f"TTS pre-warm failed (voice will load on first request): {e}")
+
     yield
 
     # Shutdown

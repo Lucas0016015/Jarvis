@@ -130,7 +130,7 @@ function IceBrain() {
   const box = new THREE.Box3().setFromObject(new THREE.Mesh(geometry))
   const size = box.getSize(new THREE.Vector3())
   const maxDim = Math.max(size.x, size.y, size.z)
-  const scale = 2 / maxDim
+  const scale = 1.6 / maxDim
 
   return (
     <group ref={groupRef} scale={scale}>

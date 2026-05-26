@@ -23,11 +23,21 @@ from backend.core.storage import (
 
 router = APIRouter(prefix="/files", tags=["files"])
 
-ALLOWED_TYPES = {
-    "image/jpeg", "image/png", "image/gif", "image/webp",
-    "application/pdf", "text/plain", "text/markdown",
-    "application/json", "audio/mpeg", "audio/wav", "audio/webm",
-    "video/mp4", "video/webm",
+ALLOWED_EXTENSIONS = {
+    # Texto y Documentos
+    ".txt", ".md", ".markdown", ".pdf", ".docx", ".csv",
+    # Datos y Web
+    ".json", ".xml", ".html", ".htm",
+    # Hojas de cálculo
+    ".xlsx", ".xls", ".ods",
+    # Imágenes
+    ".jpg", ".jpeg", ".png", ".webp", ".gif",
+    # Audio y Video
+    ".mp3", ".wav", ".webm", ".mp4", ".mov",
+    # Código
+    ".py", ".js", ".ts", ".jsx", ".tsx", ".cpp", ".h", ".hpp",
+    ".html", ".css", ".scss", ".sql",
+    ".yaml", ".yml", ".log", ".env", ".cfg", ".ini", ".toml",
 }
 
 MAX_FILE_SIZE = 50 * 1024 * 1024  # 50MB
@@ -49,9 +59,10 @@ async def upload_file(
     generate_url: bool = Form(True),
 ):
     """Upload a file to Railway Object Storage bucket."""
-    # Validate
-    if file.content_type not in ALLOWED_TYPES:
-        raise HTTPException(400, f"File type not allowed: {file.content_type}")
+    # Validate extension
+    ext = ("." + file.filename.split(".")[-1]).lower() if file.filename and "." in file.filename else ""
+    if ext and ext not in ALLOWED_EXTENSIONS:
+        raise HTTPException(400, f"Tipo de archivo no permitido: {ext}. Tipos permitidos: {', '.join(sorted(ALLOWED_EXTENSIONS))}")
 
     content = await file.read()
     if len(content) > MAX_FILE_SIZE:

@@ -21,7 +21,7 @@ interface AppSettings {
 }
 
 const DEFAULTS: AppSettings = {
-  apiUrl: 'http://localhost:8000',
+  apiUrl: 'http://localhost:8001',
   llmProvider: 'lm_studio',
   modelName: 'qwen2.5-vl-7b',
   theme: 'dark',

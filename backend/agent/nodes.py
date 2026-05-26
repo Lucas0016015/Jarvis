@@ -48,6 +48,7 @@ def call_model_with_tools(
     """Invoke LLM with bound tools + RAG context — circuit breaker protected.
 
     Flow: SystemMessage(persona) → history → RAG context → trim → LLM.invoke()
+    Falls back to plain invoke if the model does not support tools.
     """
     persona = state.get("persona", "profesional")
     base = list(state["messages"])
@@ -64,5 +65,16 @@ def call_model_with_tools(
     messages = [system] + enriched
     trimmed = _trim_messages(messages, persona)
 
-    response = llm_breaker.call(llm_with_tools.invoke, trimmed)
+    try:
+        response = llm_breaker.call(llm_with_tools.invoke, trimmed)
+    except Exception as e:
+        err_msg = str(e)
+        if "does not support tools" in err_msg or "status code: 400" in err_msg:
+            logger.warning(f"Model no soporta tools, usando invoke sin tool binding: {err_msg[:120]}")
+            from backend.llm import get_llm
+            llm = get_llm()
+            response = llm_breaker.call(llm.invoke, trimmed)
+        else:
+            raise
+
     return {"messages": [response]}

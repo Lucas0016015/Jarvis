@@ -20,6 +20,7 @@ export type PanelMode =
   | 'email'
   | 'settings'
   | 'personalities'
+  | 'files'
 
 export type AppScreen =
   | 'home'
@@ -31,6 +32,7 @@ export type AppScreen =
   | 'email'
   | 'settings'
   | 'personalities'
+  | 'files'
 
 export interface Persona {
   name: string
@@ -69,6 +71,7 @@ export interface JarvisStore {
 
   /* ── Audio / Voice ── */
   micActive: boolean             // Micrófono grabando
+  voiceEnabled: boolean          // TTS activo: JARVIS habla las respuestas
   visualizerAmplitude: number    // 0.0 - 1.0 para el visualizador
 
   /* ── Thinking / Status ── */
@@ -104,6 +107,7 @@ export interface JarvisStore {
   setPanelExpanded: (v: boolean) => void
 
   setMicActive: (active: boolean) => void
+  setVoiceEnabled: (enabled: boolean) => void
   setVisualizerAmplitude: (amp: number) => void
 
   setStatusText: (text: string) => void
@@ -154,6 +158,7 @@ export const useJarvisStore = create<JarvisStore>()(
   panelExpanded: true,
 
   micActive: false,
+  voiceEnabled: false,
   visualizerAmplitude: 0,
 
   statusText: 'Neural Link Active',
@@ -201,6 +206,7 @@ export const useJarvisStore = create<JarvisStore>()(
   setPanelExpanded: (panelExpanded) => set({ panelExpanded }),
 
   setMicActive: (micActive) => set({ micActive }),
+  setVoiceEnabled: (voiceEnabled) => set({ voiceEnabled }),
   setVisualizerAmplitude: (visualizerAmplitude) => set({ visualizerAmplitude }),
 
   setStatusText: (statusText) => set({ statusText }),
@@ -301,6 +307,7 @@ export const useJarvisStore = create<JarvisStore>()(
     panelMode: 'chat',
     panelExpanded: true,
     micActive: false,
+    voiceEnabled: false,
     visualizerAmplitude: 0,
     statusText: 'Neural Link Active',
     thinkingBubbleVisible: false,
