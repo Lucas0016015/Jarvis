@@ -13,6 +13,8 @@ FROM base AS builder
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
+ARG NEXT_PUBLIC_API_URL
+ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
 RUN npm run build
@@ -27,7 +29,8 @@ RUN adduser --system --uid 1001 nextjs
 COPY --from=builder /app/.next/standalone ./
 COPY --from=builder /app/.next/static ./.next/static
 COPY --from=builder /app/public ./public
-RUN ls -la public/models/ 2>/dev/null || echo "WARNING: public/models/ not found"
+RUN ls -la public/models/ 2>/dev/null || echo "WARNING: public/models/ not found in builder"
+RUN ls -la ./.next/static/ 2>/dev/null || echo "WARNING: .next/static/ not found"
 RUN chown -R nextjs:nodejs /app
 USER nextjs
 EXPOSE 8080
