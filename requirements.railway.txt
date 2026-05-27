@@ -1,9 +1,9 @@
 # ── JARVIS Railway Backend — Dependencias livianas (1GB RAM) ──
 
-# Core LangGraph + LangChain
-langgraph>=1.1.0
-langgraph-checkpoint-sqlite>=1.0.0
-langchain-core>=1.2.0
+# Core LangGraph + LangChain — pin a versiones compatibles
+langgraph==1.1.2
+langgraph-checkpoint==2.0.24
+langchain-core==1.2.20
 langchain-ollama>=0.2.2
 langchain-openai>=0.2.0
 
