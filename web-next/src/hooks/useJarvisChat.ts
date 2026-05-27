@@ -21,18 +21,19 @@ interface AppSettings {
 }
 
 function getApiUrl(): string {
-  const envUrl = process.env.NEXT_PUBLIC_API_URL || '';
-  if (typeof window === 'undefined') return envUrl || 'http://localhost:8001';
-  try {
-    const stored = localStorage.getItem('jarvis_settings');
-    if (stored) {
-      const s = JSON.parse(stored);
-      if (s.apiUrl && !s.apiUrl.includes('localhost')) return s.apiUrl;
-    }
-  } catch {}
-  if (envUrl) return envUrl;
-  if (window.location.hostname !== 'localhost') return window.location.origin;
-  return 'http://localhost:8001';
+  if (typeof window !== 'undefined') {
+    const env = (window as any).__ENV;
+    if (env?.API_URL) return env.API_URL;
+    try {
+      const stored = localStorage.getItem('jarvis_settings');
+      if (stored) {
+        const s = JSON.parse(stored);
+        if (s.apiUrl && !s.apiUrl.includes('localhost')) return s.apiUrl;
+      }
+    } catch {}
+    if (window.location.hostname !== 'localhost') return window.location.origin;
+  }
+  return process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8001';
 }
 
 function loadSettings(): AppSettings {
