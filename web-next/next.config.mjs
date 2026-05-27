@@ -1,6 +1,5 @@
 /**
- * JARVIS Next.js Config — URLs hardcodeadas para Railway.
- * Railway rompe las env vars (concatena "KEY = VALUE")
+ * JARVIS Next.js Config — Railway deployment
  */
 const API_BASE = 'https://jarvis-ai-production.up.railway.app'
 

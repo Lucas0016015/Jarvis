@@ -21,8 +21,6 @@ interface AppSettings {
   autoConnect: boolean;
 }
 
-const PRODUCTION_API_URL = 'https://jarvis-ai-production.up.railway.app'
-
 function getApiUrl(): string {
   if (typeof window !== 'undefined' && window.location.hostname === 'localhost') {
     return 'http://localhost:8001'
