@@ -78,16 +78,14 @@ export default function ChatModePanel() {
   const uploadAttachments = async (): Promise<Array<{key: string, filename: string, size: number, content_type: string}>> => {
     if (attachments.length === 0) return [];
     const results = [];
-    const settings = JSON.parse(localStorage.getItem('jarvis_settings') || '{}');
-    const apiUrl = settings.apiUrl || (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8001');
-    
+
     for (const file of attachments) {
       const form = new FormData();
       form.append('file', file);
       form.append('folder', 'chat_attachments');
       form.append('generate_url', 'false');
-      
-      const res = await fetch(`${apiUrl}/api/v1/files/upload`, {
+
+      const res = await fetch('/api/files/upload', {
         method: 'POST',
         body: form,
       });
@@ -408,7 +406,7 @@ export default function ChatModePanel() {
                   ref={fileInputRef}
                   type="file"
                   multiple
-                  accept=".pdf,.txt,.md,.csv,.json,.py,.js,.ts,.html,.css,.xml,.yaml,.yml"
+                   accept=".pdf,.docx,.xlsx,.xls,.ods,.txt,.md,.csv,.json,.py,.js,.ts,.jsx,.tsx,.cpp,.h,.html,.css,.sql,.yaml,.yml,.xml,.jpg,.jpeg,.png,.gif,.webp,.mp3,.wav,.mp4,.mov"
                   className="hidden"
                   onChange={handleFileSelect}
                 />
