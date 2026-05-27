@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import { useJarvisStore } from '@/store/jarvisStore';
+import { API_BASE } from '@/lib/api';
 
 export interface ChatMessage {
   id: string;
@@ -23,19 +24,10 @@ interface AppSettings {
 const PRODUCTION_API_URL = 'https://jarvis-ai-production.up.railway.app'
 
 function getApiUrl(): string {
-  if (typeof window !== 'undefined') {
-    const env = (window as any).__ENV;
-    if (env?.API_URL) return env.API_URL;
-    try {
-      const stored = localStorage.getItem('jarvis_settings');
-      if (stored) {
-        const s = JSON.parse(stored);
-        if (s.apiUrl && !s.apiUrl.includes('localhost')) return s.apiUrl;
-      }
-    } catch {}
-    if (window.location.hostname !== 'localhost') return PRODUCTION_API_URL;
+  if (typeof window !== 'undefined' && window.location.hostname === 'localhost') {
+    return 'http://localhost:8001'
   }
-  return process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8001';
+  return API_BASE
 }
 
 function loadSettings(): AppSettings {
