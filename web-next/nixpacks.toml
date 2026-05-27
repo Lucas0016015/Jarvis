@@ -1,12 +1,2 @@
-# Railway Nixpacks configuration for Next.js frontend
-[phases.setup]
-nixpkgsArchive = "24.05"
-
-[phases.install]
-cmds = ["npm install"]
-
-[phases.build]
-cmds = ["npm run build"]
-
 [start]
-cmd = "node .next/standalone/server.js"
+cmd = "npx next start --port 8080"
