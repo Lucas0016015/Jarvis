@@ -1,9 +1,7 @@
-# JARVIS Frontend Railway Deployment
-# Next.js 14 frontend con Dockerfile.frontend
-
-[build]
-builder = "DOCKERFILE"
-dockerfilePath = "Dockerfile"
+# JARVIS Railway Deployment
+# Configurar Builder y Root Directory manualmente en el dashboard:
+# - Servicio "jarvis" (backend):   Root=/             Dockerfile=Dockerfile.backend  Port=8000
+# - Servicio "front-end":          Root=/web-next     Dockerfile=Dockerfile          Port=3000
 
 [deploy]
 restartPolicyType = "ON_FAILURE"

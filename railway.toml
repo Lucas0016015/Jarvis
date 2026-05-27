@@ -1,11 +1,10 @@
-# JARVIS Railway Deployment
-# Solo backend (FastAPI). Frontend deploya aparte en Vercel.
-# El CMD del Dockerfile se encarga del puerto (sh -c con ${PORT:-8000})
-
-[deploy]
-restartPolicyType = "ON_FAILURE"
-restartPolicyMaxRetries = 3
+# JARVIS Railway Deployment — Backend (FastAPI)
+# Frontend usa web-next/railway.toml (Root Directory = /web-next en Railway dashboard)
 
 [build]
 builder = "DOCKERFILE"
 dockerfilePath = "Dockerfile.backend"
+
+[deploy]
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 3
