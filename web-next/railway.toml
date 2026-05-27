@@ -1,5 +1,0 @@
-# JARVIS Frontend Railway (Root Directory = /web-next)
-
-[deploy]
-restartPolicyType = "ON_FAILURE"
-restartPolicyMaxRetries = 3
