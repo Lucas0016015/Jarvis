@@ -1,7 +1,4 @@
-# JARVIS Railway Deployment
-# Configurar Builder y Root Directory manualmente en el dashboard:
-# - Servicio "jarvis" (backend):   Root=/             Dockerfile=Dockerfile.backend  Port=8000
-# - Servicio "front-end":          Root=/web-next     Dockerfile=Dockerfile          Port=3000
+# JARVIS Frontend Railway (Root Directory = /web-next)
 
 [deploy]
 restartPolicyType = "ON_FAILURE"

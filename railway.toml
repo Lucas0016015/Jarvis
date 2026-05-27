@@ -1,9 +1,7 @@
-# JARVIS Railway Deployment — Backend (FastAPI)
-# Frontend usa web-next/railway.toml (Root Directory = /web-next en Railway dashboard)
-
-[build]
-builder = "DOCKERFILE"
-dockerfilePath = "Dockerfile.backend"
+# JARVIS Railway Deployment
+# Cada servicio se configura manualmente en el dashboard de Railway:
+# Servicio "jarvis" (backend):   Root=/,           Dockerfile=Dockerfile.backend  Port=8000
+# Servicio "front-end":          Root=/web-next,   Dockerfile=Dockerfile          Port=3000
 
 [deploy]
 restartPolicyType = "ON_FAILURE"
