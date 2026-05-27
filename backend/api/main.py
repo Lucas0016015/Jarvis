@@ -86,17 +86,16 @@ app = FastAPI(
 # 1. Response compression (GZip for responses > 1KB)
 app.add_middleware(GZipMiddleware, minimum_size=1000)
 
-# 2. CORS (agregamos 3001 para el frontend)
+# 2. CORS
 _CORS_ORIGINS = [
     "http://localhost:3000",
-    "http://127.0.0.1:3000",
     "http://localhost:3001",
-    "http://127.0.0.1:3001",
-    "http://localhost:4173",
-    "http://127.0.0.1:4173",
+    "https://front-end-production.up.railway.app",
 ]
 if settings.cors_origins != ["*"]:
-    _CORS_ORIGINS = list(dict.fromkeys(_CORS_ORIGINS + settings.cors_origins))
+    for o in settings.cors_origins:
+        if o not in _CORS_ORIGINS:
+            _CORS_ORIGINS.append(o)
 
 app.add_middleware(
     CORSMiddleware,
