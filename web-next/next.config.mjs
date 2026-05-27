@@ -1,14 +1,8 @@
-/**
- * JARVIS Next.js Config — Railway deployment
- * NOTA: Railway usa Nixpacks que corre "next start" — NO usar output:standalone
- */
-const API_BASE = 'https://jarvis-ai-production.up.railway.app'
-
+/** JARVIS Next.js Config — Railway */
 const nextConfig = {
   async rewrites() {
     return [
-      { source: '/api/:path*', destination: `${API_BASE}/api/v1/:path*` },
-      { source: '/health', destination: `${API_BASE}/health` },
+      { source: '/api/:path*', destination: 'https://jarvis-ai-production.up.railway.app/api/v1/:path*' },
     ]
   },
   images: { unoptimized: true },
@@ -16,5 +10,4 @@ const nextConfig = {
   typescript: { ignoreBuildErrors: false },
   poweredByHeader: false,
 }
-
 export default nextConfig
