@@ -1,34 +1,21 @@
-/** @type {import('next').NextConfig} */
+/**
+ * JARVIS Next.js Config — URLs hardcodeadas para Railway.
+ * Railway rompe las env vars (concatena "KEY = VALUE")
+ */
+const API_BASE = 'https://jarvis-ai-production.up.railway.app'
+
 const nextConfig = {
   output: 'standalone',
   async rewrites() {
-    const apiUrl = (
-      process.env.NEXT_PUBLIC_API_URL ||
-      process.env.API_URL ||
-      'https://jarvis-ai-production.up.railway.app'
-    ).trim();
-    console.log('[Next.js Rewrites] Proxy API_URL =', apiUrl);
     return [
-      {
-        source: '/api/:path*',
-        destination: `${apiUrl}/api/v1/:path*`,
-      },
-      {
-        source: '/health',
-        destination: `${apiUrl}/health`,
-      },
-    ];
+      { source: '/api/:path*', destination: `${API_BASE}/api/v1/:path*` },
+      { source: '/health', destination: `${API_BASE}/health` },
+    ]
   },
-  images: {
-    unoptimized: true,
-  },
-  eslint: {
-    ignoreDuringBuilds: true,
-  },
-  typescript: {
-    ignoreBuildErrors: false,
-  },
+  images: { unoptimized: true },
+  eslint: { ignoreDuringBuilds: true },
+  typescript: { ignoreBuildErrors: false },
   poweredByHeader: false,
-};
+}
 
-export default nextConfig;
+export default nextConfig
