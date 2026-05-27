@@ -23,18 +23,30 @@ _LOCAL_META_FILE = _LOCAL_STORAGE_DIR / "_files.json"
 
 
 def _is_railway_configured() -> bool:
-    endpoint = os.environ.get("ENDPOINT") or os.environ.get("RAILWAY_BUCKET_ENDPOINT")
-    access_key = os.environ.get("ACCESS_KEY_ID") or os.environ.get("RAILWAY_BUCKET_ACCESS_KEY")
-    secret_key = os.environ.get("SECRET_ACCESS_KEY") or os.environ.get("RAILWAY_BUCKET_SECRET_KEY")
+    endpoint = (os.environ.get("ENDPOINT")
+             or os.environ.get("RAILWAY_BUCKET_ENDPOINT")
+             or os.environ.get("AWS_ENDPOINT_URL"))
+    access_key = (os.environ.get("ACCESS_KEY_ID")
+               or os.environ.get("AWS_ACCESS_KEY_ID")
+               or os.environ.get("RAILWAY_BUCKET_ACCESS_KEY"))
+    secret_key = (os.environ.get("SECRET_ACCESS_KEY")
+               or os.environ.get("AWS_SECRET_ACCESS_KEY")
+               or os.environ.get("RAILWAY_BUCKET_SECRET_KEY"))
     return bool(endpoint and access_key and secret_key)
 
 
 def _get_s3_client():
     if not _S3_AVAILABLE:
         raise RuntimeError("boto3 no instalado.")
-    endpoint = os.environ.get("ENDPOINT") or os.environ.get("RAILWAY_BUCKET_ENDPOINT")
-    access_key = os.environ.get("ACCESS_KEY_ID") or os.environ.get("RAILWAY_BUCKET_ACCESS_KEY")
-    secret_key = os.environ.get("SECRET_ACCESS_KEY") or os.environ.get("RAILWAY_BUCKET_SECRET_KEY")
+    endpoint = (os.environ.get("ENDPOINT")
+             or os.environ.get("RAILWAY_BUCKET_ENDPOINT")
+             or os.environ.get("AWS_ENDPOINT_URL"))
+    access_key = (os.environ.get("ACCESS_KEY_ID")
+               or os.environ.get("AWS_ACCESS_KEY_ID")
+               or os.environ.get("RAILWAY_BUCKET_ACCESS_KEY"))
+    secret_key = (os.environ.get("SECRET_ACCESS_KEY")
+               or os.environ.get("AWS_SECRET_ACCESS_KEY")
+               or os.environ.get("RAILWAY_BUCKET_SECRET_KEY"))
     if not all([endpoint, access_key, secret_key]):
         raise RuntimeError("Railway Object Storage no configurado.")
     return boto3.client(
@@ -47,7 +59,10 @@ def _get_s3_client():
 
 
 def _get_bucket_name():
-    return os.environ.get("BUCKET") or os.environ.get("RAILWAY_BUCKET_NAME") or "jarvis-uploads"
+    return (os.environ.get("BUCKET")
+         or os.environ.get("RAILWAY_BUCKET_NAME")
+         or os.environ.get("AWS_S3_BUCKET_NAME")
+         or "jarvis-uploads")
 
 
 def _load_local_meta() -> dict:
