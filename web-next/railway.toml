@@ -1,0 +1,10 @@
+# JARVIS Frontend Railway Deployment
+# Next.js 14 frontend con Dockerfile.frontend
+
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "Dockerfile.frontend"
+
+[deploy]
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 3
