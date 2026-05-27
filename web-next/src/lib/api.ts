@@ -1,2 +1,2 @@
-// URL hardcodeada — Railway rompe las env vars (concatena KEY = VALUE como string)
-export const API_BASE = 'https://jarvis-ai-production.up.railway.app'
+// URL hardcodeada — backend real de Railway
+export const API_BASE = 'https://backend-production-2522d.up.railway.app'
