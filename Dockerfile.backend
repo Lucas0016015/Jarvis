@@ -1,54 +1,17 @@
-# ── JARVIS Backend Dockerfile ─────────────────────────────────
-# Multi-stage build for production
-# Build: docker build -f Dockerfile.backend -t jarvis-backend .
-# Run:   docker run -p 8000:8000 --env-file .env jarvis-backend
-# ═══════════════════════════════════════════════════════════════
-
 FROM python:3.12-slim AS builder
-
 WORKDIR /app
-
-# Install system deps
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential \
-    gcc \
-    g++ \
-    && rm -rf /var/lib/apt/lists/*
-
-# Install Python deps
+RUN apt-get update && apt-get install -y --no-install-recommends build-essential gcc g++ && rm -rf /var/lib/apt/lists/*
 COPY requirements.txt .
 RUN pip install --no-cache-dir --user -r requirements.txt
 
-# ── Production stage ────────────────────────────────────────────
-FROM python:3.12-slim AS production
-
+FROM python:3.12-slim
 WORKDIR /app
-
-# Create non-root user
 RUN useradd -m -u 1000 jarvis
-
-# Copy installed packages from builder
 COPY --from=builder /root/.local /home/jarvis/.local
 ENV PATH=/home/jarvis/.local/bin:$PATH
-
-# Copy application code
 COPY backend/ ./backend/
-COPY alembic.ini .
-COPY main.py .
-COPY knowledge_engine.py .
-COPY librarian.py .
-COPY sync_service.py .
-
-# Create data directory and fix permissions
+COPY alembic.ini main.py knowledge_engine.py librarian.py sync_service.py ./
 RUN mkdir -p /app/data && chown -R jarvis:jarvis /app
-
 USER jarvis
-
-# Health check (Railway asigna $PORT dinámicamente)
-HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:${PORT:-8000}/api/v1/health')" || exit 1
-
-EXPOSE ${PORT:-8000}
-
-# Railway inyecta PORT=8080. Sin --workers para que Railway maneje procesos.
-CMD ["sh", "-c", "python -m uvicorn backend.api.main:app --host 0.0.0.0 --port ${PORT:-8000} --proxy-headers"]
+EXPOSE 8080
+CMD ["python", "-m", "uvicorn", "backend.api.main:app", "--host", "0.0.0.0", "--port", "8080", "--proxy-headers"]

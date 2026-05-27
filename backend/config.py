@@ -1,7 +1,10 @@
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic import Field
-from dotenv import load_dotenv
-load_dotenv()
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except Exception:
+    pass
 
 
 class Settings(BaseSettings):
