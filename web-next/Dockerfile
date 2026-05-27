@@ -27,6 +27,7 @@ RUN adduser --system --uid 1001 nextjs
 COPY --from=builder /app/.next/standalone ./
 COPY --from=builder /app/.next/static ./.next/static
 COPY --from=builder /app/public ./public
+RUN ls -la public/models/ 2>/dev/null || echo "WARNING: public/models/ not found"
 RUN chown -R nextjs:nodejs /app
 USER nextjs
 EXPOSE 8080
