@@ -1,3 +1,4 @@
+# ── JARVIS Backend Dockerfile ────────────────────────────────
 FROM python:3.12-slim
 
 WORKDIR /app
@@ -14,7 +15,6 @@ COPY main.py knowledge_engine.py librarian.py sync_service.py alembic.ini ./
 
 RUN mkdir -p /app/data
 
-RUN useradd -m -u 1000 jarvis && chown -R jarvis:jarvis /app
-USER jarvis
+EXPOSE 8000
 
-CMD ["sh", "-c", "exec python -m uvicorn backend.api.main:app --host 0.0.0.0 --port ${PORT:-8000}"]
+CMD python -m uvicorn backend.api.main:app --host 0.0.0.0 --port ${PORT:-8000}
