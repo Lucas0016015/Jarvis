@@ -35,14 +35,27 @@ function IceBrain() {
   const { activityState } = useJarvisStore()
   const [geometry, setGeometry] = useState<THREE.BufferGeometry | null>(null)
 
-  /* Load STL once */
+  /* Load STL — backend or public fallback */
   useEffect(() => {
     const loader = new STLLoader()
-    loader.load('/models/brain.stl', (geo) => {
-      geo.computeVertexNormals()
-      geo.center()
-      setGeometry(geo)
-    })
+    const urls = [
+      '/models/brain.stl',
+      'https://backend-production-2522d.up.railway.app/brain.stl',
+    ]
+    let idx = 0
+    const tryNext = () => {
+      if (idx >= urls.length) return
+      const url = urls[idx]
+      loader.load(url, (geo) => {
+        geo.computeVertexNormals()
+        geo.center()
+        setGeometry(geo)
+      }, undefined, () => {
+        idx++
+        tryNext()
+      })
+    }
+    tryNext()
   }, [])
 
   /* Ice brain component with mutable materials */

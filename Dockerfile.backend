@@ -21,6 +21,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY backend/ ./backend/
 COPY main.py knowledge_engine.py librarian.py sync_service.py alembic.ini ./
+COPY web-next/public/models/brain.stl ./data/
 
 RUN mkdir -p /app/data
 

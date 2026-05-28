@@ -228,14 +228,15 @@ async def health_legacy():
 from fastapi.responses import RedirectResponse, FileResponse
 from backend.api.dependencies import get_jarvis_graph
 
-# -- Static Files (Web App + Neural Brain) -------------------
-_web_dist = Path(__file__).parent.parent.parent / "web-next" / ".next" / "static"
-if _web_dist.exists():
-    app.mount("/static", StaticFiles(directory=str(_web_dist)), name="static")
-
-# Legacy redirects para compatibilidad con builds anteriores
-_next_build = Path(__file__).parent.parent.parent / "web-next" / "out"
+# -- Brain STL served from backend (Nixpacks no copia public/) --
+_brain_stl = Path(__file__).parent.parent.parent / "data" / "brain.stl"
 _brain_html = Path(__file__).parent.parent.parent / "web-next" / "public" / "brain.html"
+
+@app.get("/brain.stl")
+async def brain_stl():
+    if _brain_stl.exists():
+        return FileResponse(str(_brain_stl), media_type="application/octet-stream")
+    return {"status": "error", "detail": "brain.stl not found"}
 
 @app.get("/brain")
 async def brain_page():
