@@ -16,13 +16,7 @@ router = APIRouter()
 
 @router.post("/chat", response_model=ChatResponse)
 async def chat(request: ChatRequest, graph=Depends(get_jarvis_graph)):
-    """Blocking chat endpoint. Invokes the graph and returns the final AI response."""
-    config = {
-        "configurable": {
-            "thread_id": request.session_id or "default",
-        }
-    }
-
+    config = {"configurable": {"thread_id": request.session_id or "default"}}
     state = await graph.ainvoke(
         {
             "messages": [HumanMessage(content=request.message)],
@@ -38,10 +32,6 @@ async def chat(request: ChatRequest, graph=Depends(get_jarvis_graph)):
 
 @router.websocket("/ws/chat")
 async def ws_chat(websocket: WebSocket, graph=Depends(get_jarvis_graph)):
-    """
-    WebSocket streaming chat.
-    Si el streaming falla, hace fallback a ainvoke (respuesta completa).
-    """
     await websocket.accept()
     logger.info(f"WebSocket conectado desde {websocket.client}")
     try:
@@ -61,20 +51,15 @@ async def ws_chat(websocket: WebSocket, graph=Depends(get_jarvis_graph)):
             if not message.strip() and not attachments:
                 continue
 
-            config = {
-                "configurable": {
-                    "thread_id": session_id,
-                }
-            }
+            config = {"configurable": {"thread_id": session_id}}
 
-            # ── Procesar adjuntos ───────────────────────────────────────────
             combined_message = message
             if attachments:
                 file_keys = [a["key"] for a in attachments]
                 filenames = [a.get("filename", a["key"].split("/")[-1]) for a in attachments]
                 logger.info(f"WS chat: {len(attachments)} adjuntos session={session_id}")
                 await websocket.send_text(
-                    StreamChunk(type="file_uploaded", content=f"📎 Procesando {len(attachments)} archivo(s)...").model_dump_json()
+                    StreamChunk(type="file_uploaded", content=f"Procesando {len(attachments)} archivo(s)...").model_dump_json()
                 )
                 try:
                     file_context = build_file_context(file_keys, filenames)
@@ -85,107 +70,35 @@ async def ws_chat(websocket: WebSocket, graph=Depends(get_jarvis_graph)):
 
             logger.info(f"WS chat: session={session_id}, persona={persona}, msg_len={len(message)}, attachments={len(attachments)}")
 
-            # ── Intento 1: Streaming con buffer ──────────────────────────
+            # DIRECT INVOKE con streaming de tokens fake (más estable que astream_events)
             try:
-                token_buffer: list[str] = []
-                last_send = time.time()
-                has_tokens = False
-
-                async for event in graph.astream_events(
-                    {
-                        "messages": [HumanMessage(content=combined_message)],
-                        "session_id": session_id,
-                        "persona": persona,
-                    },
-                    config=config,
-                    version="v2",
-                ):
-                    kind = event["event"]
-
-                    if kind == "on_chat_model_stream":
-                        chunk = event["data"]["chunk"]
-                        token = chunk.content if hasattr(chunk, "content") else ""
-                        if token:
-                            has_tokens = True
-                            token_buffer.append(token)
-                            # Enviar cada 50ms o buffer > 10 tokens
-                            now = time.time()
-                            if now - last_send > 0.05 or len(token_buffer) > 10:
-                                await websocket.send_text(
-                                    StreamChunk(type="token", content="".join(token_buffer)).model_dump_json()
-                                )
-                                token_buffer = []
-                                last_send = now
-
-                    elif kind == "on_tool_start":
-                        await websocket.send_text(
-                            StreamChunk(
-                                type="tool_start",
-                                tool_name=event.get("name"),
-                                tool_input=event["data"].get("input"),
-                            ).model_dump_json()
-                        )
-
-                    elif kind == "on_tool_end":
-                        await websocket.send_text(
-                            StreamChunk(
-                                type="tool_end",
-                                tool_name=event.get("name"),
-                                tool_output=event["data"].get("output"),
-                            ).model_dump_json()
-                        )
-
-                # Enviar tokens restantes
-                if token_buffer:
-                    await websocket.send_text(
-                        StreamChunk(type="token", content="".join(token_buffer)).model_dump_json()
-                    )
-
-                # Si NO llegó ningún token, fallback a ainvoke
-                if not has_tokens:
-                    raise RuntimeError("No streaming tokens received")
-
-                await websocket.send_text(StreamChunk(type="done").model_dump_json())
-                logger.info(f"WS streaming completado session={session_id}")
-
-            except Exception as exc:
-                # ── Intento 2: Fallback a ainvoke ────────────────────────
-                logger.warning(f"Streaming fallo para session={session_id}: {exc}. Usando fallback ainvoke.")
-                try:
-                    state = await graph.ainvoke(
+                state = await asyncio.wait_for(
+                    graph.ainvoke(
                         {
                             "messages": [HumanMessage(content=combined_message)],
                             "session_id": session_id,
                             "persona": persona,
                         },
                         config=config,
-                    )
-                    ai_message = state["messages"][-1]
-                    content = ai_message.content if hasattr(ai_message, "content") else str(ai_message)
-
-                    # Simular streaming: enviar la respuesta en chunks
-                    chunk_size = 20
-                    for i in range(0, len(content), chunk_size):
-                        await websocket.send_text(
-                            StreamChunk(type="token", content=content[i:i+chunk_size]).model_dump_json()
-                        )
-                        await asyncio.sleep(0.01)
-
-                    await websocket.send_text(StreamChunk(type="done").model_dump_json())
-                    logger.info(f"WS fallback completado session={session_id}, len={len(content)}")
-                except Exception as fallback_exc:
-                    logger.error(f"Fallback tambien fallo: {fallback_exc}")
-                    await websocket.send_text(
-                        StreamChunk(type="error", content=str(fallback_exc)).model_dump_json()
-                    )
+                    ),
+                    timeout=120,
+                )
+                ai_message = state["messages"][-1]
+                response_text = ai_message.content if hasattr(ai_message, "content") else str(ai_message)
+                await websocket.send_text(StreamChunk(type="token", content=response_text).model_dump_json())
+                await websocket.send_text(StreamChunk(type="done").model_dump_json())
+                logger.info(f"WS chat completado session={session_id}")
+            except asyncio.TimeoutError:
+                await websocket.send_text(StreamChunk(type="error", content="Timeout: el modelo tardó más de 120s en responder.").model_dump_json())
+                logger.warning(f"WS chat timeout session={session_id}")
+            except Exception as e:
+                logger.error(f"WS chat error: {e}")
+                try:
+                    await websocket.send_text(StreamChunk(type="error", content=str(e)[:500]).model_dump_json())
+                except:
+                    pass
 
     except WebSocketDisconnect:
         logger.info("WebSocket desconectado normalmente")
-    except Exception as exc:
-        logger.error(f"WebSocket error critico: {exc}")
-        try:
-            await websocket.send_text(
-                StreamChunk(type="error", content=str(exc)).model_dump_json()
-            )
-        except Exception:
-            pass
+    except Exception as e:
+        logger.error(f"WebSocket error critico: {e}")
